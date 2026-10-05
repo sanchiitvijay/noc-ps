@@ -21,8 +21,7 @@ from base64 import b64decode, b64encode
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-import jwt
-from jwt.exceptions import InvalidTokenError
+from jose import jwt, JWTError
 
 from config import settings
 
@@ -194,5 +193,5 @@ def get_token_jti(token: str) -> str | None:
     try:
         payload = decode_token(token)
         return payload.get("jti")
-    except InvalidTokenError:
+    except JWTError:
         return None

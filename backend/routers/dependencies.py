@@ -15,7 +15,7 @@ from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from database.connection import AsyncConnection, get_connection
-from jwt.exceptions import InvalidTokenError
+from jose import JWTError
 
 from services.auth_service import get_user_by_id, is_token_blocked
 from utils.security import decode_token

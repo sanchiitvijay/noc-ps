@@ -18,7 +18,9 @@ import sqlite3
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator, Any
 
+from fastapi import HTTPException
 from config import settings
+from utils.exceptions import NOCException
 
 logger = logging.getLogger(__name__)
 
@@ -165,6 +167,10 @@ async def get_connection() -> AsyncGenerator[AsyncConnection, None]:
     conn = AsyncConnection(raw_conn)
     try:
         yield conn
+    except (NOCException, HTTPException):
+        # Business logic exception - just rollback, don't log as DB error
+        await conn.rollback()
+        raise
     except Exception as exc:
         logger.error("Database error: %s", exc, exc_info=True)
         await conn.rollback()

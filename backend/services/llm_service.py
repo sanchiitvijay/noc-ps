@@ -161,7 +161,7 @@ async def generate_suggested_solution(
 
     try:
         genai = _get_genai()
-        model = genai.GenerativeModel("gemini-1.5-flash")
+        model = genai.GenerativeModel("gemini-3.5-flash")
         prompt = _build_prompt(device, event_type, historical, diagnostics)
 
         response = model.generate_content(prompt)

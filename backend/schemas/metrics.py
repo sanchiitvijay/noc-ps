@@ -84,12 +84,3 @@ class MetricsResponse(BaseModel):
     events_by_severity: SeverityBreakdown
     events_by_category: CategoryBreakdown
     top_alerting_devices: list[TopAlertingDevice]
-    recent_trend: list[DailyTrendPoint]
-    ticket_stats: TicketStats
-    total_devices: int
-    notes: list[str] = Field(
-        default_factory=lambda: [
-            "event_logs.event_time contains time-only (HH:MM:SS.mmm) without dates. "
-            "Time-window counts and trend buckets are approximated from event_id ranges."
-        ]
-    )

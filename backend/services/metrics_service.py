@@ -140,7 +140,7 @@ async def get_events_by_category(conn: aiosqlite.Connection) -> dict:
 
 async def get_top_alerting_devices(
     conn: aiosqlite.Connection,
-    limit: int = 10,
+    limit: int = 5,
 ) -> list[dict]:
     """Return the top N devices by event count.
 
@@ -264,20 +264,11 @@ async def build_metrics(conn: aiosqlite.Connection) -> dict:
     events_by_severity = await get_events_by_severity(conn)
     events_by_category = await get_events_by_category(conn)
     top_alerting_devices = await get_top_alerting_devices(conn)
-    recent_trend = await get_recent_trend(conn)
-    ticket_stats = await get_ticket_stats(conn)
-    total_devices = await get_total_devices(conn)
+    
 
     return {
         "total_events": total_events,
         "events_by_severity": events_by_severity,
         "events_by_category": events_by_category,
         "top_alerting_devices": top_alerting_devices,
-        "recent_trend": recent_trend,
-        "ticket_stats": ticket_stats,
-        "total_devices": total_devices,
-        "notes": [
-            "event_logs.event_time contains time-only (HH:MM:SS.mmm) without dates. "
-            "Time-window counts and trend buckets are approximated from event_id ranges."
-        ],
     }

@@ -216,12 +216,21 @@ Retrieves paginated event logs.
 **GET** `/error-info`
 
 *(Requires Bearer Token)*  
-The core endpoint for the NOC Analyst dashboard. Aggregates Device Info, Event Context, Historical Tickets, Live Network Diagnostics (Ping/Traceroute/DNS), and the AI-generated recommended solution into a single response.
+The core endpoint for the NOC Analyst dashboard. Returns a **single unified payload** containing:
 
-**Query Parameters (requires at least one ID):**
-- `device_id` (optional, int)
-- `device_name` (optional, str)
+- **Device info** (name, IP, type, site, vendor, location)
+- **Event type** metadata (name, severity, category)
+- **Historical tickets** — full ticket data from the master query (ticket fields + severity + frequency + device + event fields)
+- **Recent error logs** — raw `event_logs` entries for the device + event type
+- **Live diagnostics** — ping, traceroute (with hop list), DNS lookup
+- **AI-generated solution** — Gemini LLM analysis (or rule-based fallback)
+
+**Query Parameters:**
+- `device_id` (optional, int) — preferred
+- `device_name` (optional, str) — partial LIKE match, used if `device_id` not provided
 - `event_type_id` (required, int)
+
+> **At least one of** `device_id` **or** `device_name` **must be provided.**
 
 **Sample Curl:**
 ```bash
@@ -229,55 +238,125 @@ curl -X GET "http://localhost:8000/error-info?device_id=42&event_type_id=1" \
   -H "Authorization: Bearer YOUR_TOKEN"
 ```
 
-**Response:**
+**Response (200 OK):**
 ```json
 {
-  "device": {
-    "device_id": 42,
-    "device_name": "SW-CORE-02",
-    "ip_address": "10.10.10.5",
-    "machine_type": "Cisco Catalyst"
-  },
-  "event_type": {
-    "event_type_name": "Node Down",
-    "severity": "Critical",
-    "category": "connectivity"
-  },
-  "historical_info": {
-    "total_incidents_6m": 4,
-    "related_tickets": [
-      {
-        "ticket_number": "INC000123",
-        "state": "Closed",
-        "short_description": "Network disruption due to power module failure",
-        "work_notes": "Replaced PoE Module on Flr 3 switch."
-      }
-    ]
-  },
-  "preliminary_checks": {
-    "ping": {
-      "host": "10.10.10.5",
-      "reachable": false,
-      "packet_loss_pct": 100
+  "success": true,
+  "message": "OK",
+  "data": {
+    "device": {
+      "device_id": 42,
+      "device_name": "SW-CORE-02",
+      "ip_address": "10.10.10.5",
+      "site_code": "0501",
+      "site_name": "Lakewood-NJ",
+      "machine_type": "Cisco Catalyst",
+      "vendor": "Cisco",
+      "location": "Floor 3 MDF"
     },
-    "traceroute": {
-      "host": "10.10.10.5",
-      "completed": false,
-      "error": "Failed at Hop 3 (192.168.100.1)"
+    "event_type": {
+      "event_type_id": 1,
+      "event_type_name": "Node Down",
+      "severity": "P1",
+      "category": "connectivity"
+    },
+    "historical_info": {
+      "total_incidents_6m": 4,
+      "last_event_id": 98723456,
+      "related_tickets": [
+        {
+          "ticket_number": "INC0001234",
+          "ticket_type": "INC",
+          "state": "Closed",
+          "created_on": "10-02-2024 08:15",
+          "updated_on": "10-02-2024 12:30",
+          "closed_at": "10-02-2024 14:00",
+          "short_description": "Network disruption due to power module failure",
+          "description": "Full description text from ServiceNow ticket...",
+          "work_notes": "Replaced PoE Module on Floor 3 switch. Service restored.",
+          "severity": "P1",
+          "frequency": 3,
+          "device_type": "Cisco Catalyst",
+          "device_name": "SW-CORE-02",
+          "ip_address": "10.10.10.5",
+          "device_id": 42,
+          "event_time": "08:12:45.123",
+          "event_type_name": "Node Down",
+          "event_message": "SW-CORE-02 is down. 100% packet loss.",
+          "last_event_id": 98723456
+        }
+      ],
+      "recent_event_logs": [
+        {
+          "event_id": 98723456,
+          "event_time": "08:12:45.123",
+          "event_type_name": "Node Down",
+          "message": "SW-CORE-02 is down. 100% packet loss.",
+          "current_status": 0,
+          "raw_detail": "SNMP trap received from 10.10.10.5"
+        },
+        {
+          "event_id": 98712300,
+          "event_time": "06:55:10.000",
+          "event_type_name": "Node Down",
+          "message": "SW-CORE-02 unreachable after 3 retries.",
+          "current_status": 0,
+          "raw_detail": null
+        }
+      ]
+    },
+    "preliminary_checks": {
+      "ping": {
+        "host": "10.10.10.5",
+        "packets_sent": 4,
+        "packets_received": 0,
+        "packet_loss_pct": 100.0,
+        "avg_rtt_ms": null,
+        "reachable": false
+      },
+      "traceroute": {
+        "host": "10.10.10.5",
+        "hops": [
+          { "hop": 1, "host": "10.0.0.1", "rtt_ms": 1.2 },
+          { "hop": 2, "host": "172.16.0.1", "rtt_ms": 4.8 },
+          { "hop": 3, "host": "* * *", "rtt_ms": null },
+          { "hop": 4, "host": "* * *", "rtt_ms": null }
+        ],
+        "completed": false,
+        "error": "Destination unreachable at hop 3 — possible route black-hole or firewall drop"
+      },
+      "nslookup": {
+        "host": "10.10.10.5",
+        "addresses": ["10.10.10.5"],
+        "reverse_lookup": "ptr-10-10-10-5.noc.internal",
+        "error": null
+      }
+    },
+    "suggested_solution": {
+      "generated_by": "gemini",
+      "has_ticket_context": true,
+      "confidence": "high",
+      "hypothesis": "Switch port failure or power module issue based on total packet loss and historical occurrences.",
+      "recommended_steps": [
+        "Verify upstream switch status and check for port-down syslogs.",
+        "Perform hard power cycle on the device.",
+        "Dispatch field tech for PoE module replacement if power issue confirmed."
+      ]
     }
-  },
-  "suggested_solution": {
-    "generated_by": "gemini",
-    "confidence": "high",
-    "hypothesis": "Switch port failure or power module issue based on total packet loss and historical occurrences.",
-    "recommended_steps": [
-      "1. Verify upstream switch status.",
-      "2. Perform hard power cycle.",
-      "3. Dispatch field tech for PoE module replacement."
-    ]
   }
 }
 ```
+
+#### `suggested_solution.generated_by` values
+
+| Value | Meaning |
+|---|---|
+| `"gemini"` | Gemini LLM with historical ticket context |
+| `"no_ticket_llm"` | **Gemini LLM but no related tickets found** — frontend should display *"LLM gave this response"* |
+| `"rule-based"` | LLM unavailable — rule-based fallback used |
+
+> When `generated_by` is `"no_ticket_llm"`, `historical_info.related_tickets` will be an empty array `[]`.  
+> `has_ticket_context: false` is the machine-readable equivalent for the frontend to branch on.
 
 ---
 

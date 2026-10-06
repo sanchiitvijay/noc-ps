@@ -1,9 +1,12 @@
 """
 LLM service — Gemini API integration for error analysis and suggested solutions.
 
-Uses ``google-generativeai`` to generate structured hypotheses and
-recommended remediation steps based on device context, event type,
-historical tickets, and diagnostic results.
+Sends only minimal, essential context to Gemini (device type, event, ping
+status, ticket count + up to 3 ticket snippets) to minimise token usage.
+
+If LLM is unavailable or returns an error, falls back gracefully to a
+rule-based suggestion. If there are no related tickets the response is
+clearly labelled as an LLM-only analysis.
 """
 
 from __future__ import annotations
@@ -49,87 +52,59 @@ def _build_prompt(
     historical: dict,
     diagnostics: dict,
 ) -> str:
-    """Construct the prompt string sent to the Gemini model.
+    """Construct a *minimal* prompt for Gemini — only essential fields.
 
-    The prompt asks for structured JSON output with a defined schema.
+    We deliberately omit large blobs (description, work_notes, raw_detail,
+    traceroute hops, nslookup details) to keep the context small and fast.
 
     Args:
         device: Device row dict.
         event_type: Event type row dict (name, severity, category).
         historical: Historical info dict (total_incidents_6m, related_tickets).
-        diagnostics: Preliminary checks dict (ping, traceroute, nslookup).
+        diagnostics: Preliminary checks dict (ping only — rest stripped).
 
     Returns:
-        A formatted prompt string.
+        A compact prompt string.
     """
-    # Summarise tickets to avoid exceeding context limits
-    ticket_summaries = []
-    for t in historical.get("related_tickets", [])[:5]:
-        ticket_summaries.append(
-            f"- [{t.get('ticket_number', 'N/A')}] ({t.get('state', '')}) "
-            f"{t.get('short_description', '')[:120]}"
+    tickets = historical.get("related_tickets", [])
+    has_tickets = bool(tickets)
+
+    # Up to 3 tickets — only number, state, short_description (max 100 chars)
+    ticket_lines: list[str] = []
+    for t in tickets[:3]:
+        desc = (t.get("short_description") or "")[:100]
+        ticket_lines.append(
+            f"  [{t.get('ticket_number', 'N/A')}] state={t.get('state', '?')} — {desc}"
         )
+    ticket_text = "\n".join(ticket_lines) if ticket_lines else "None found."
 
-    ticket_text = "\n".join(ticket_summaries) or "No related tickets found."
-
-    # Diagnostic summary
+    # Ping summary only (most actionable diagnostic signal)
     ping = diagnostics.get("ping", {})
-    traceroute = diagnostics.get("traceroute", {})
-    nslookup = diagnostics.get("nslookup", {})
+    ping_status = "REACHABLE" if ping.get("reachable") else "UNREACHABLE"
+    ping_loss   = ping.get("packet_loss_pct", "N/A")
+    ping_rtt    = ping.get("avg_rtt_ms", "N/A")
 
-    ping_summary = (
-        f"Ping: {'REACHABLE' if ping.get('reachable') else 'UNREACHABLE'} "
-        f"(loss={ping.get('packet_loss_pct', 'N/A')}%, rtt={ping.get('avg_rtt_ms', 'N/A')}ms)"
-    )
-    trace_summary = (
-        f"Traceroute: {'Completed' if traceroute.get('completed') else 'Failed'} — "
-        f"{traceroute.get('error') or 'No error'}"
-    )
-    dns_summary = (
-        f"NSLookup: addresses={nslookup.get('addresses', [])}, "
-        f"reverse={nslookup.get('reverse_lookup', 'N/A')}"
+    no_ticket_note = (
+        "\nNOTE: No historical tickets exist for this device. "
+        "Your analysis must be based purely on the event type and diagnostic results.\n"
+        if not has_tickets else ""
     )
 
-    prompt = f"""You are a NOC (Network Operations Center) expert assistant.
-Analyze the following network event and provide a structured diagnosis.
-
-## Device Information
-- Name: {device.get('device_name', 'N/A')}
-- IP Address: {device.get('ip_address', 'N/A')}
-- Type: {device.get('machine_type', 'N/A')}
-- Vendor: {device.get('vendor', 'N/A')}
-- Site: {device.get('site_name', 'N/A')} (Code: {device.get('site_code', 'N/A')})
-- Location: {device.get('location', 'N/A')}
-
-## Event Type
-- Name: {event_type.get('event_type_name', 'N/A')}
-- Severity: {event_type.get('severity', 'N/A')}
-- Category: {event_type.get('category', 'N/A')}
-
-## Historical Context
-- Total similar incidents (recent): {historical.get('total_incidents_6m', 0)}
-- Related ServiceNow Tickets:
+    prompt = f"""You are a NOC expert assistant. Diagnose the following network event concisely.
+{no_ticket_note}
+Device: {device.get('device_name', 'N/A')} | IP: {device.get('ip_address', 'N/A')} | Type: {device.get('machine_type', 'N/A')}
+Event: {event_type.get('event_type_name', 'N/A')} | Severity: {event_type.get('severity', 'N/A')} | Category: {event_type.get('category', 'N/A')}
+Incidents (recent): {historical.get('total_incidents_6m', 0)}
+Ping: {ping_status} (loss={ping_loss}%, rtt={ping_rtt}ms)
+Related tickets:
 {ticket_text}
 
-## Preliminary Network Diagnostics
-- {ping_summary}
-- {trace_summary}
-- {dns_summary}
-
-## Task
-Based on the above information, provide a JSON response with EXACTLY this structure:
+Respond ONLY with this JSON (no markdown):
 {{
-  "hypothesis": "One-paragraph description of the most likely root cause",
-  "recommended_steps": [
-    "Step 1: Specific action to take",
-    "Step 2: Another specific action",
-    "Step 3: Escalation path if steps 1-2 don't resolve"
-  ],
+  "hypothesis": "One paragraph root cause",
+  "recommended_steps": ["Step 1", "Step 2", "Step 3"],
   "confidence": "high|medium|low"
-}}
-
-Respond with ONLY the JSON object, no markdown fences or extra text.
-"""
+}}"""
     return prompt
 
 
@@ -140,6 +115,10 @@ async def generate_suggested_solution(
     diagnostics: dict,
 ) -> dict:
     """Call Gemini to generate a hypothesis and recommended steps.
+
+    If there are no related tickets, the response will be clearly flagged
+    as ``"no_ticket_llm"`` source so the frontend can show the appropriate
+    label (e.g. "LLM gave this response").
 
     Falls back to a rule-based suggestion if the API key is missing or if
     the API call fails, so the endpoint never returns an error purely due
@@ -153,15 +132,19 @@ async def generate_suggested_solution(
 
     Returns:
         Dict with ``hypothesis``, ``recommended_steps``, ``confidence``,
-        ``generated_by`` keys.
+        ``generated_by``, and ``has_ticket_context`` keys.
     """
+    has_tickets = bool(historical.get("related_tickets"))
+
     if not settings.GEMINI_API_KEY:
         logger.info("GEMINI_API_KEY not set — using rule-based fallback")
-        return _rule_based_fallback(device, event_type, diagnostics)
+        result = _rule_based_fallback(device, event_type, diagnostics)
+        result["has_ticket_context"] = has_tickets
+        return result
 
     try:
-        genai = _get_genai()
-        model = genai.GenerativeModel("gemini-3.5-flash")
+        genai  = _get_genai()
+        model  = genai.GenerativeModel("gemini-3.5-flash")
         prompt = _build_prompt(device, event_type, historical, diagnostics)
 
         response = model.generate_content(prompt)
@@ -176,18 +159,24 @@ async def generate_suggested_solution(
 
         parsed = json.loads(raw_text)
         return {
-            "hypothesis": parsed.get("hypothesis", "Unable to determine root cause."),
+            "hypothesis":        parsed.get("hypothesis", "Unable to determine root cause."),
             "recommended_steps": parsed.get("recommended_steps", []),
-            "confidence": parsed.get("confidence", "low"),
-            "generated_by": "gemini",
+            "confidence":        parsed.get("confidence", "low"),
+            # "no_ticket_llm" signals to the frontend to show "LLM gave this response"
+            "generated_by":      "gemini" if has_tickets else "no_ticket_llm",
+            "has_ticket_context": has_tickets,
         }
 
     except json.JSONDecodeError as exc:
         logger.warning("Gemini returned non-JSON output: %s", exc)
-        return _rule_based_fallback(device, event_type, diagnostics)
+        result = _rule_based_fallback(device, event_type, diagnostics)
+        result["has_ticket_context"] = has_tickets
+        return result
     except Exception as exc:
         logger.error("Gemini API call failed: %s", exc, exc_info=True)
-        return _rule_based_fallback(device, event_type, diagnostics)
+        result = _rule_based_fallback(device, event_type, diagnostics)
+        result["has_ticket_context"] = has_tickets
+        return result
 
 
 def _rule_based_fallback(device: dict, event_type: dict, diagnostics: dict) -> dict:
@@ -204,9 +193,9 @@ def _rule_based_fallback(device: dict, event_type: dict, diagnostics: dict) -> d
     Returns:
         Suggestion dict with ``generated_by="rule-based"``.
     """
-    category = event_type.get("category", "other")
-    severity = event_type.get("severity", "Unknown")
-    ping = diagnostics.get("ping", {})
+    category  = event_type.get("category", "other")
+    severity  = event_type.get("severity", "Unknown")
+    ping      = diagnostics.get("ping", {})
     reachable = ping.get("reachable", True)
 
     if not reachable:
@@ -268,8 +257,8 @@ def _rule_based_fallback(device: dict, event_type: dict, diagnostics: dict) -> d
         ]
 
     return {
-        "hypothesis": hypothesis,
+        "hypothesis":        hypothesis,
         "recommended_steps": steps,
-        "confidence": "medium" if reachable else "high",
-        "generated_by": "rule-based",
+        "confidence":        "medium" if reachable else "high",
+        "generated_by":      "rule-based",
     }

@@ -7,8 +7,6 @@ from __future__ import annotations
 
 import logging
 
-import aiosqlite
-
 from database.connection import fetch_one
 from services.diagnostic_service import run_all_diagnostics
 from services.llm_service import generate_suggested_solution
@@ -19,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 
 async def get_event_type(
-    conn: aiosqlite.Connection,
+    conn,
     event_type_id: int,
 ) -> dict:
     """Fetch event type metadata from event_type_lookup.
@@ -45,7 +43,7 @@ async def get_event_type(
 
 
 async def build_error_info(
-    conn: aiosqlite.Connection,
+    conn,
     device_id: int | None = None,
     device_name: str | None = None,
     event_type_id: int | None = None,
@@ -55,9 +53,9 @@ async def build_error_info(
     Steps:
         1. Resolve the device (by id or name).
         2. Resolve the event type.
-        3. Fetch historical ticket info using multiple strategies.
+        3. Fetch historical ticket + event log info via the master query.
         4. Run ping/traceroute/nslookup diagnostics on the device IP.
-        5. Generate an LLM suggestion based on all gathered context.
+        5. Generate an LLM summary based on minimal context (optimized call).
 
     Args:
         conn: Active database connection.
@@ -66,7 +64,7 @@ async def build_error_info(
         event_type_id: Event type primary key.
 
     Returns:
-        Full error-info data dict compatible with ``ErrorInfoData`` schema.
+        Full error-info data dict compatible with the updated ``ErrorInfoData`` schema.
 
     Raises:
         NotFoundError: If the device or event type cannot be resolved.
@@ -86,7 +84,7 @@ async def build_error_info(
     # Step 2: Resolve event type
     event_type = await get_event_type(conn, event_type_id)
 
-    # Step 3: Historical ticket lookup
+    # Step 3: Historical ticket lookup + recent event logs (master query)
     logger.info(
         "Fetching historical info for device_id=%s, event_type_id=%s",
         device["device_id"],
@@ -99,7 +97,7 @@ async def build_error_info(
     logger.info("Running diagnostics for host=%s", target_host)
     diagnostics = await run_all_diagnostics(target_host)
 
-    # Step 5: LLM suggestion
+    # Step 5: LLM suggestion — pass only a minimal, focused context
     logger.info("Generating LLM suggestion")
     suggestion = await generate_suggested_solution(
         device=device,
@@ -109,9 +107,9 @@ async def build_error_info(
     )
 
     return {
-        "device": device,
-        "event_type": event_type,
-        "historical_info": historical,
+        "device":             device,
+        "event_type":         event_type,
+        "historical_info":    historical,
         "preliminary_checks": diagnostics,
         "suggested_solution": suggestion,
     }

@@ -26,7 +26,7 @@ async def get_event_logs(
     severity: str | None = None,
     search: str | None = None,
     page: int = 1,
-    page_size: int = 50,
+    page_size: int = 1000000,
 ) -> dict:
     """Fetch paginated event_logs with optional filters.
 
@@ -122,7 +122,7 @@ async def get_event_logs(
 async def get_activity_logs(
     conn: aiosqlite.Connection,
     page: int = 1,
-    page_size: int = 50,
+    page_size: int = 1000000,
 ) -> dict:
     """Fetch paginated activity_logs, joining username from users table.
 

@@ -84,7 +84,7 @@ async def get_logs(
             severity=severity,
             search=search,
             page=page,
-            page_size=page_size,
+            page_size=10000,
         )
         return JSONResponse(
             status_code=200,

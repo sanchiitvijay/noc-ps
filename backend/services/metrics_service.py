@@ -141,7 +141,7 @@ async def get_events_by_category(conn: aiosqlite.Connection) -> dict:
 
 async def get_top_alerting_devices(
     conn: aiosqlite.Connection,
-    limit: int = 5,
+    limit: int = 10,
 ) -> list[dict]:
     """Return the top N devices by event count.
 

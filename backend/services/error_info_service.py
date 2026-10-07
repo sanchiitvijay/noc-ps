@@ -1,6 +1,10 @@
 """
 Error info service — orchestrates device lookup, ticket history,
 diagnostic checks, and LLM suggestion for the /error-info endpoint.
+
+Lookup priority for suggested_solution:
+  1. ticket_solution_summaries table  (cached; instant)
+  2. External LLM via llm_service     (Gemini → Groq → rule-based)
 """
 
 from __future__ import annotations
@@ -10,6 +14,7 @@ import logging
 from database.connection import fetch_one
 from services.diagnostic_service import run_all_diagnostics
 from services.llm_service import generate_suggested_solution
+from services.solution_summary_service import get_summary
 from services.ticket_service import get_device_info, get_historical_info
 from utils.exceptions import NotFoundError
 
@@ -55,7 +60,8 @@ async def build_error_info(
         2. Resolve the event type.
         3. Fetch historical ticket + event log info via the master query.
         4. Run ping/traceroute/nslookup diagnostics on the device IP.
-        5. Generate an LLM summary based on minimal context (optimized call).
+        5. Check ticket_solution_summaries for a cached solution.
+        6. If no cache hit, generate a solution via LLM (Gemini → Groq → rule-based).
 
     Args:
         conn: Active database connection.
@@ -64,7 +70,9 @@ async def build_error_info(
         event_type_id: Event type primary key.
 
     Returns:
-        Full error-info data dict compatible with the updated ``ErrorInfoData`` schema.
+        Full error-info data dict compatible with the ``ErrorInfoData`` schema.
+        The ``suggested_solution`` block includes a ``used_saved_summary`` bool
+        so the frontend can show "Resolved from saved summary" when applicable.
 
     Raises:
         NotFoundError: If the device or event type cannot be resolved.
@@ -97,13 +105,23 @@ async def build_error_info(
     logger.info("Running diagnostics for host=%s", target_host)
     diagnostics = await run_all_diagnostics(target_host)
 
-    # Step 5: LLM suggestion — pass only a minimal, focused context
-    logger.info("Generating LLM suggestion")
+    # Step 5: Check saved solution summary cache (fast path)
+    saved_summary = await get_summary(conn, device["device_id"], event_type_id)
+    if saved_summary:
+        logger.info(
+            "Found saved solution summary for device_id=%s event_type_id=%s",
+            device["device_id"],
+            event_type_id,
+        )
+
+    # Step 6: LLM suggestion — pass saved_summary so it can be injected into prompt
+    logger.info("Generating LLM suggestion (saved_summary=%s)", saved_summary is not None)
     suggestion = await generate_suggested_solution(
         device=device,
         event_type=event_type,
         historical=historical,
         diagnostics=diagnostics,
+        saved_summary=saved_summary,
     )
 
     return {

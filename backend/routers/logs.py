@@ -8,7 +8,7 @@ import logging
 from typing import Annotated
 
 import aiosqlite
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import JSONResponse
 
 from database.connection import get_connection
@@ -20,7 +20,20 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["Logs"])
 
 
-@router.get("/get-logs", summary="Get paginated, filtered event logs")
+@router.get(
+    "/get-logs",
+    summary="Get paginated, filtered event logs",
+    responses={
+        200: {
+            "description": (
+                "Paginated list of event logs enriched with device and event type metadata."
+            )
+        },
+        401: {"description": "Authentication required"},
+        422: {"description": "Invalid query parameters"},
+        500: {"description": "Internal server error"},
+    },
+)
 async def get_logs(
     current_user: Annotated[dict, Depends(get_current_user)],
     conn: aiosqlite.Connection = Depends(get_connection),
@@ -28,7 +41,7 @@ async def get_logs(
     event_type_id: int | None = Query(default=None, description="Filter by event type ID"),
     severity: str | None = Query(
         default=None,
-        description="Filter by severity: Critical | Warning | Info | Unknown",
+        description="Filter by severity: P1 | P2 | P3 | P4",
     ),
     search: str | None = Query(
         default=None,
@@ -59,22 +72,29 @@ async def get_logs(
 
     Returns:
         200 response with data array and pagination meta.
+
+    Raises:
+        500: On unexpected database errors.
     """
-    result = await get_event_logs(
-        conn,
-        device_id=device_id,
-        event_type_id=event_type_id,
-        severity=severity,
-        search=search,
-        page=page,
-        page_size=page_size,
-    )
-    return JSONResponse(
-        status_code=200,
-        content={
-            "success": True,
-            "message": "OK",
-            "data": result["data"],
-            "meta": result["meta"],
-        },
-    )
+    try:
+        result = await get_event_logs(
+            conn,
+            device_id=device_id,
+            event_type_id=event_type_id,
+            severity=severity,
+            search=search,
+            page=page,
+            page_size=page_size,
+        )
+        return JSONResponse(
+            status_code=200,
+            content={
+                "success": True,
+                "message": "OK",
+                "data": result["data"],
+                "meta": result["meta"],
+            },
+        )
+    except Exception as exc:
+        logger.error("get_logs error: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to retrieve event logs") from exc

@@ -1,12 +1,16 @@
 """
 LLM service — Gemini API integration for error analysis and suggested solutions.
 
-Sends only minimal, essential context to Gemini (device type, event, ping
+Fallback chain:
+  1. Gemini (primary — google.generativeai)
+  2. Groq  (fallback — groq SDK, model: moonshotai/kimi-k2-instruct ~120B-class OSS)
+  3. Rule-based (final fallback — always succeeds)
+
+Sends only minimal, essential context to the LLM (device type, event, ping
 status, ticket count + up to 3 ticket snippets) to minimise token usage.
 
-If LLM is unavailable or returns an error, falls back gracefully to a
-rule-based suggestion. If there are no related tickets the response is
-clearly labelled as an LLM-only analysis.
+If a saved ticket solution summary exists for the device+event_type combination,
+it is injected into the prompt so the LLM can reference it directly.
 """
 
 from __future__ import annotations
@@ -18,12 +22,18 @@ from config import settings
 
 logger = logging.getLogger(__name__)
 
-# Lazy import to avoid startup failure when GEMINI_API_KEY is empty
+# Lazy singletons to avoid startup failures when API keys are absent
 _genai = None
+_groq_client = None
+
+
+# ---------------------------------------------------------------------------
+# Client initialisation helpers
+# ---------------------------------------------------------------------------
 
 
 def _get_genai():
-    """Lazily import and configure the google.generativeai module.
+    """Lazily import and configure google.generativeai.
 
     Returns:
         The configured ``google.generativeai`` module instance.
@@ -39,11 +49,42 @@ def _get_genai():
         if not settings.GEMINI_API_KEY:
             raise ValueError(
                 "GEMINI_API_KEY is not configured. "
-                "Set it in the .env file to enable AI-powered suggestions."
+                "Set it in the .env file to enable Gemini AI suggestions."
             )
         genai.configure(api_key=settings.GEMINI_API_KEY)
         _genai = genai
     return _genai
+
+
+def _get_groq():
+    """Lazily import and configure the Groq client.
+
+    Returns:
+        A configured ``groq.Groq`` client.
+
+    Raises:
+        ImportError: If the ``groq`` package is not installed.
+        ValueError: If GROQ_API_KEY is not configured.
+    """
+    global _groq_client
+    if _groq_client is None:
+        try:
+            from groq import Groq  # noqa: PLC0415
+        except ImportError as exc:
+            raise ImportError(
+                "groq package not installed. Run: pip install groq"
+            ) from exc
+
+        if not settings.GROQ_API_KEY:
+            raise ValueError("GROQ_API_KEY is not configured.")
+
+        _groq_client = Groq(api_key=settings.GROQ_API_KEY)
+    return _groq_client
+
+
+# ---------------------------------------------------------------------------
+# Prompt builder
+# ---------------------------------------------------------------------------
 
 
 def _build_prompt(
@@ -51,17 +92,20 @@ def _build_prompt(
     event_type: dict,
     historical: dict,
     diagnostics: dict,
+    saved_summary: dict | None = None,
 ) -> str:
-    """Construct a *minimal* prompt for Gemini — only essential fields.
+    """Construct a *minimal* prompt — only essential fields.
 
-    We deliberately omit large blobs (description, work_notes, raw_detail,
-    traceroute hops, nslookup details) to keep the context small and fast.
+    We deliberately omit large blobs (full description, work_notes,
+    raw_detail, traceroute hops, nslookup details) to keep the context
+    small and fast.
 
     Args:
         device: Device row dict.
         event_type: Event type row dict (name, severity, category).
         historical: Historical info dict (total_incidents_6m, related_tickets).
-        diagnostics: Preliminary checks dict (ping only — rest stripped).
+        diagnostics: Preliminary checks dict.
+        saved_summary: Optional pre-computed ticket solution summary from DB.
 
     Returns:
         A compact prompt string.
@@ -90,8 +134,19 @@ def _build_prompt(
         if not has_tickets else ""
     )
 
+    # Inject saved summary if available
+    saved_summary_block = ""
+    if saved_summary:
+        saved_summary_block = f"""
+Known solution summary (pre-computed from past tickets):
+  Hypothesis: {saved_summary.get('hypothesis', 'N/A')}
+  Steps: {'; '.join(saved_summary.get('recommended_steps', []))}
+  Confidence: {saved_summary.get('confidence', 'N/A')}
+Use this as a strong reference but still validate against current diagnostics.
+"""
+
     prompt = f"""You are a NOC expert assistant. Diagnose the following network event concisely.
-{no_ticket_note}
+{no_ticket_note}{saved_summary_block}
 Device: {device.get('device_name', 'N/A')} | IP: {device.get('ip_address', 'N/A')} | Type: {device.get('machine_type', 'N/A')}
 Event: {event_type.get('event_type_name', 'N/A')} | Severity: {event_type.get('severity', 'N/A')} | Category: {event_type.get('category', 'N/A')}
 Incidents (recent): {historical.get('total_incidents_6m', 0)}
@@ -108,79 +163,171 @@ Respond ONLY with this JSON (no markdown):
     return prompt
 
 
+# ---------------------------------------------------------------------------
+# LLM callers
+# ---------------------------------------------------------------------------
+
+
+def _parse_llm_response(raw_text: str) -> dict:
+    """Parse and clean an LLM JSON response, stripping any markdown fences.
+
+    Args:
+        raw_text: Raw text returned by the LLM.
+
+    Returns:
+        Parsed dict with hypothesis, recommended_steps, confidence.
+
+    Raises:
+        json.JSONDecodeError: If the text cannot be parsed as JSON.
+    """
+    text = raw_text.strip()
+    # Strip markdown fences if present despite instructions
+    if text.startswith("```"):
+        parts = text.split("```")
+        text = parts[1] if len(parts) > 1 else text
+        if text.startswith("json"):
+            text = text[4:]
+        text = text.strip()
+    return json.loads(text)
+
+
+async def _call_gemini(prompt: str) -> dict:
+    """Call the Gemini API and return parsed JSON.
+
+    Args:
+        prompt: The prompt string.
+
+    Returns:
+        Parsed dict with hypothesis, recommended_steps, confidence.
+
+    Raises:
+        Exception: On API or parse failure.
+    """
+    genai = _get_genai()
+    model = genai.GenerativeModel("gemini-3.5-flash")
+    response = model.generate_content(prompt)
+    return _parse_llm_response(response.text)
+
+
+async def _call_groq(prompt: str) -> dict:
+    """Call the Groq API (moonshotai/kimi-k2-instruct — 120B-class OSS) and return parsed JSON.
+
+    Args:
+        prompt: The prompt string.
+
+    Returns:
+        Parsed dict with hypothesis, recommended_steps, confidence.
+
+    Raises:
+        Exception: On API or parse failure.
+    """
+    client = _get_groq()
+    # moonshotai/kimi-k2-instruct is a ~120B-class open-source model on Groq
+    completion = client.chat.completions.create(
+        model="moonshotai/kimi-k2-instruct",
+        messages=[
+            {
+                "role": "system",
+                "content": (
+                    "You are a NOC expert assistant. "
+                    "Always respond ONLY with valid JSON — no markdown, no extra text."
+                ),
+            },
+            {"role": "user", "content": prompt},
+        ],
+        temperature=0.2,
+        max_tokens=512,
+    )
+    raw = completion.choices[0].message.content or ""
+    return _parse_llm_response(raw)
+
+
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
+
+
 async def generate_suggested_solution(
     device: dict,
     event_type: dict,
     historical: dict,
     diagnostics: dict,
+    saved_summary: dict | None = None,
 ) -> dict:
-    """Call Gemini to generate a hypothesis and recommended steps.
+    """Generate a hypothesis and recommended steps.
 
-    If there are no related tickets, the response will be clearly flagged
-    as ``"no_ticket_llm"`` source so the frontend can show the appropriate
-    label (e.g. "LLM gave this response").
+    Fallback chain: Gemini → Groq → Rule-based.
 
-    Falls back to a rule-based suggestion if the API key is missing or if
-    the API call fails, so the endpoint never returns an error purely due
-    to LLM unavailability.
+    If a ``saved_summary`` is provided (from the ticket_solution_summaries table),
+    it is injected into the prompt and also returned in the response so the frontend
+    knows a cached solution exists.
 
     Args:
         device: Device row dict.
         event_type: Event type row dict.
         historical: Historical info dict from ticket_service.
         diagnostics: Diagnostic results dict from diagnostic_service.
+        saved_summary: Optional pre-computed summary dict from DB.
 
     Returns:
         Dict with ``hypothesis``, ``recommended_steps``, ``confidence``,
-        ``generated_by``, and ``has_ticket_context`` keys.
+        ``generated_by``, ``has_ticket_context``, and ``used_saved_summary``
+        keys.
     """
     has_tickets = bool(historical.get("related_tickets"))
+    prompt = _build_prompt(device, event_type, historical, diagnostics, saved_summary)
 
-    if not settings.GEMINI_API_KEY:
-        logger.info("GEMINI_API_KEY not set — using rule-based fallback")
-        result = _rule_based_fallback(device, event_type, diagnostics)
-        result["has_ticket_context"] = has_tickets
-        return result
-
-    try:
-        genai  = _get_genai()
-        model  = genai.GenerativeModel("gemini-3.5-flash")
-        prompt = _build_prompt(device, event_type, historical, diagnostics)
-
-        response = model.generate_content(prompt)
-        raw_text = response.text.strip()
-
-        # Strip markdown fences if the model added them despite instructions
-        if raw_text.startswith("```"):
-            raw_text = raw_text.split("```")[1]
-            if raw_text.startswith("json"):
-                raw_text = raw_text[4:]
-            raw_text = raw_text.strip()
-
-        parsed = json.loads(raw_text)
+    def _wrap(parsed: dict, source: str) -> dict:
         return {
             "hypothesis":        parsed.get("hypothesis", "Unable to determine root cause."),
             "recommended_steps": parsed.get("recommended_steps", []),
             "confidence":        parsed.get("confidence", "low"),
-            # "no_ticket_llm" signals to the frontend to show "LLM gave this response"
-            "generated_by":      "gemini" if has_tickets else "no_ticket_llm",
+            "generated_by":      source if has_tickets else "no_ticket_llm",
             "has_ticket_context": has_tickets,
+            "used_saved_summary": saved_summary is not None,
         }
 
-    except json.JSONDecodeError as exc:
-        logger.warning("Gemini returned non-JSON output: %s", exc)
-        result = _rule_based_fallback(device, event_type, diagnostics)
-        result["has_ticket_context"] = has_tickets
-        return result
-    except Exception as exc:
-        logger.error("Gemini API call failed: %s", exc, exc_info=True)
-        result = _rule_based_fallback(device, event_type, diagnostics)
-        result["has_ticket_context"] = has_tickets
-        return result
+    # ── 1. Gemini (primary) ────────────────────────────────────────────────────
+    if settings.GEMINI_API_KEY:
+        try:
+            parsed = await _call_gemini(prompt)
+            logger.info("LLM response generated by Gemini")
+            return _wrap(parsed, "gemini")
+        except json.JSONDecodeError as exc:
+            logger.warning("Gemini returned non-JSON output: %s", exc)
+        except Exception as exc:
+            logger.warning("Gemini API call failed (%s) — trying Groq fallback", exc)
+    else:
+        logger.info("GEMINI_API_KEY not set — skipping Gemini")
+
+    # ── 2. Groq fallback ──────────────────────────────────────────────────────
+    if settings.GROQ_API_KEY:
+        try:
+            parsed = await _call_groq(prompt)
+            logger.info("LLM response generated by Groq (fallback)")
+            return _wrap(parsed, "groq")
+        except json.JSONDecodeError as exc:
+            logger.warning("Groq returned non-JSON output: %s", exc)
+        except Exception as exc:
+            logger.warning("Groq API call failed (%s) — using rule-based fallback", exc)
+    else:
+        logger.info("GROQ_API_KEY not set — skipping Groq fallback")
+
+    # ── 3. Rule-based fallback (always succeeds) ──────────────────────────────
+    logger.info("Using rule-based fallback suggestion")
+    result = _rule_based_fallback(device, event_type, diagnostics)
+    result["has_ticket_context"] = has_tickets
+    result["used_saved_summary"] = saved_summary is not None
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Rule-based fallback
+# ---------------------------------------------------------------------------
 
 
 def _rule_based_fallback(device: dict, event_type: dict, diagnostics: dict) -> dict:
-    """Generate a basic rule-based suggestion when the LLM is unavailable.
+    """Generate a basic rule-based suggestion when both LLMs are unavailable.
 
     Uses the event category and ping result to produce a minimal but useful
     recommendation.
@@ -194,7 +341,7 @@ def _rule_based_fallback(device: dict, event_type: dict, diagnostics: dict) -> d
         Suggestion dict with ``generated_by="rule-based"``.
     """
     category  = event_type.get("category", "other")
-    severity  = event_type.get("severity", "Unknown")
+    severity  = event_type.get("severity")
     ping      = diagnostics.get("ping", {})
     reachable = ping.get("reachable", True)
 

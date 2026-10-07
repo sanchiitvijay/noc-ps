@@ -90,17 +90,18 @@ async def get_events_by_severity(conn: aiosqlite.Connection) -> dict:
         conn,
         """
         SELECT
-            COALESCE(etl.severity, 'Unknown') AS severity,
+            etl.severity AS severity,
             COUNT(*)                           AS cnt
         FROM event_logs el
         LEFT JOIN event_type_lookup etl ON el.event_type_id = etl.event_type_id
         GROUP BY etl.severity
-        """,
+        """
     )
-    result = {"Critical": 0, "Warning": 0, "Info": 0, "Unknown": 0}
+    result = {"P1": 0, "P2": 0, "P3": 0, "P4": 0}
     for row in rows:
-        sev = row["severity"] or "Unknown"
-        result[sev] = result.get(sev, 0) + row["cnt"]
+        sev = row["severity"]
+        if sev:
+            result[sev] = result.get(sev, 0) + row["cnt"]
     return result
 
 

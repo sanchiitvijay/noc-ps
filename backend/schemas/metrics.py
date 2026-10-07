@@ -29,10 +29,10 @@ class TotalEvents(BaseModel):
 class SeverityBreakdown(BaseModel):
     """Event counts grouped by severity level."""
 
-    Critical: int = 0
-    Warning: int = 0
-    Info: int = 0
-    Unknown: int = 0
+    P1: int = 0
+    P2: int = 0
+    P3: int = 0
+    P4: int = 0
 
 
 class CategoryBreakdown(BaseModel):

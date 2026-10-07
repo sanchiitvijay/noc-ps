@@ -27,7 +27,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from config import settings
 from database.migrations import create_default_admin, run_migrations
 from middleware.activity_logger import ActivityLoggerMiddleware
-from routers import admin, auth, error_info, internal, logs, metrics
+from routers import admin, auth, error_info, internal, logs, metrics, simulation, solution_summaries
 from utils.exceptions import register_exception_handlers
 
 # ---------------------------------------------------------------------------
@@ -124,6 +124,8 @@ def create_app() -> FastAPI:
     app.include_router(admin.router)
     app.include_router(internal.router)
     app.include_router(error_info.router)
+    app.include_router(solution_summaries.router)
+    app.include_router(simulation.router)
 
     # ── Health check ──────────────────────────────────────────────────────────
     @app.get("/health", tags=["Health"], summary="Health check")

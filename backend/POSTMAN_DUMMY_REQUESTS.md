@@ -86,9 +86,9 @@ Fetches widget data for the NOC dashboard.
     "total_devices": 6583,
     "total_events_all_time": 134385,
     "events_by_severity": {
-      "Critical": 412,
-      "Warning": 19020,
-      "Info": 114953
+      "P1": 412,
+      "P2": 19020,
+      "P3": 114953
     },
     "events_by_category": {
       "connectivity": 240,
@@ -115,7 +115,7 @@ Fetches widget data for the NOC dashboard.
 ### 2.2 Get Event Logs
 Fetches a paginated list of network events.
 - **Method:** `GET`
-- **URL:** `http://localhost:8000/get-logs?page=1&page_size=5&severity=Critical`
+- **URL:** `http://localhost:8000/get-logs?page=1&page_size=5&severity=P1`
 - **Headers:** `Authorization: Bearer <your_token>`
 - **Expected Response (200 OK):**
 ```json
@@ -127,7 +127,7 @@ Fetches a paginated list of network events.
       "event_id": 123236587,
       "event_time": "02:25:17.687",
       "event_type_name": "Node Down",
-      "severity": "Critical",
+      "severity": "P1",
       "message": "SW-CORE-02 is down. 100% packet loss.",
       "device_id": 42,
       "device_name": "SW-CORE-02"
@@ -141,7 +141,55 @@ Fetches a paginated list of network events.
 }
 ```
 
-### 2.3 Automated Error Analysis Panel (LLM Powered)
+### 2.3 Simulate Event Logs (Demo / Streaming Simulation)
+Returns randomly sampled real event logs interleaved with synthetic event logs for frontend demo streaming.
+- **Method:** `GET`
+- **URL:** `http://localhost:8000/simulate/logs?count=10&synthetic_ratio=0.2`
+- **Headers:** `Authorization: Bearer <your_token>`
+- **Expected Response (200 OK):**
+```json
+{
+  "success": true,
+  "message": "OK",
+  "data": [
+    {
+      "event_id": 123236587,
+      "event_time": "14:22:05.123",
+      "event_type_name": "Node Down",
+      "severity": "P1",
+      "category": "connectivity",
+      "message": "SW-CORE-02 is down. 100% packet loss.",
+      "device_id": 42,
+      "device_name": "SW-CORE-02",
+      "ip_address": "10.10.10.5",
+      "current_status": 0,
+      "raw_detail": null,
+      "simulated": false
+    },
+    {
+      "event_id": 900001,
+      "event_time": "14:15:32.000",
+      "event_type_name": "High CPU",
+      "severity": "P2",
+      "category": "performance",
+      "message": "High CPU utilization: 92% for 5 minutes",
+      "device_id": 105,
+      "device_name": "SIM-DEVICE-012",
+      "ip_address": "10.45.12.3",
+      "current_status": 1,
+      "raw_detail": null,
+      "simulated": true
+    }
+  ],
+  "meta": {
+    "total_returned": 2,
+    "real_count": 1,
+    "synthetic_count": 1
+  }
+}
+```
+
+### 2.4 Automated Error Analysis Panel (LLM Powered)
 Runs diagnostic checks, looks up past ServiceNow tickets, and queries Gemini for a solution.
 - **Method:** `GET`
 - **URL:** `http://localhost:8000/error-info?device_id=2&event_type_id=1`
@@ -160,7 +208,7 @@ Runs diagnostic checks, looks up past ServiceNow tickets, and queries Gemini for
     },
     "event_type": {
       "event_type_name": "Node Down",
-      "severity": "Critical",
+      "severity": "P1",
       "category": "connectivity"
     },
     "historical_info": {

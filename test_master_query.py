@@ -1,7 +1,7 @@
 """
 Master Query Tester
 ===================
-Tests all 6 input types against noc_automation.db and prints results.
+Tests all 6 input types against noc-automation2.db and prints results.
 
 Usage:
     python test_master_query.py
@@ -18,7 +18,7 @@ import sqlite3
 import os
 import argparse
 
-DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "noc_automation2.db")
+DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "noc-automation2.db")
 
 
 def run_query(ip=None, device=None, event=None, device_id=None, device_type=None, message=None):

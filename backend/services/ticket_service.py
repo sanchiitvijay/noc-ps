@@ -27,58 +27,41 @@ logger = logging.getLogger(__name__)
 
 _MASTER_QUERY = """
 SELECT
-    -- Ticket fields
     t.ticket_number,
     t.ticket_type,
     t.state,
     t.created_on,
     t.updated_on,
-    t.closed_at,
     t.short_description,
     t.description,
     t.work_notes,
-
-    -- Severity (derived from event type name)
     CASE
         WHEN e.event_type_name IN ('Node Down', 'EventType-5000', 'EventType-5001')  THEN 'P1'
         WHEN e.event_type_name IN ('Interface Down', 'Interface Status Changed')      THEN 'P2'
         WHEN e.event_type_name IN ('Node Up', 'Interface Up')                         THEN 'P3'
         ELSE 'P4'
     END AS severity,
-
-    -- Frequency: total matching events for this device
     COUNT(e.event_id) AS frequency,
-
-    -- Device + Event fields
-    d.machine_type  AS device_type,
+    d.machine_type AS device_type,
     d.device_name,
     d.ip_address,
-    d.device_id,
-    d.site_code,
-    d.site_name,
-    d.vendor,
-    d.location,
     e.event_time,
-    e.event_type_name,
-    e.message        AS event_message,
-    e.event_id       AS last_event_id
-
-FROM sn_tickets t
-JOIN device_ticket_map m ON m.ticket_id = t.ticket_id
-JOIN devices d           ON d.device_id = m.device_id
+    d.device_id,
+    e.message
+FROM devices d
 JOIN event_logs e        ON e.device_id = d.device_id
-
+LEFT JOIN device_ticket_map m ON m.device_id = d.device_id
+LEFT JOIN sn_tickets t        ON t.ticket_id = m.ticket_id
 WHERE 1=1
-  AND (? IS NULL OR d.ip_address      = ?)
-  AND (? IS NULL OR d.device_name     LIKE ?)
-  AND (? IS NULL OR d.machine_type    LIKE ?)
-  AND (? IS NULL OR e.event_type_name = ?)
-  AND (? IS NULL OR d.device_id       = ?)
-  AND (? IS NULL OR e.message         LIKE ?)
-
-GROUP BY t.ticket_id, d.device_id
+  AND (:ip_address    IS NULL OR d.ip_address      = :ip_address)
+  AND (:device_name   IS NULL OR d.device_name     LIKE :device_name)
+  AND (:device_type   IS NULL OR d.machine_type    LIKE :device_type)
+  AND (:event_name    IS NULL OR e.event_type_name = :event_name)
+  AND (:device_id     IS NULL OR d.device_id       = :device_id)
+  AND (:error_message IS NULL OR e.message         LIKE :error_message)
+GROUP BY d.device_id, COALESCE(t.ticket_id, 0)
 ORDER BY t.created_on DESC
-LIMIT 50
+LIMIT 50;
 """
 
 
@@ -108,15 +91,14 @@ async def run_master_query(
     Returns:
         List of result dicts with ticket + severity + frequency + device + event fields.
     """
-    # Build positional params — each filter appears twice (NULL check + actual value)
-    params: tuple[Any, ...] = (
-        ip_address,    ip_address,
-        device_name,   device_name,
-        device_type,   device_type,
-        event_name,    event_name,
-        device_id,     device_id,
-        error_message, error_message,
-    )
+    params = {
+        "ip_address":    ip_address,
+        "device_name":   device_name,
+        "device_type":   device_type,
+        "event_name":    event_name,
+        "device_id":     device_id,
+        "error_message": error_message,
+    }
     return await fetch_all(conn, _MASTER_QUERY, params)
 
 
@@ -293,7 +275,7 @@ async def get_historical_info(
             "device_id":        r.get("device_id"),
             "event_time":       r.get("event_time"),
             "event_type_name":  r.get("event_type_name"),
-            "event_message":    r.get("event_message"),
+            "event_message":    r.get("message"),
             "last_event_id":    r.get("last_event_id"),
         })
 

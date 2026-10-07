@@ -38,7 +38,7 @@ class Settings(BaseSettings):
     )
 
     # ── Database ──────────────────────────────────────────────────────────────
-    DATABASE_URL: str = "sqlite:////Users/sanchitvijay/working/noc-ps/noc_automation.db"
+    DATABASE_URL: str = "sqlite:////Users/sanchitvijay/working/noc-ps/noc-automation2.db"
 
     # ── JWT / Auth ────────────────────────────────────────────────────────────
     SECRET_KEY: str = "change-me-in-production-use-a-long-random-string"
@@ -47,7 +47,11 @@ class Settings(BaseSettings):
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
 
     # ── LLM / Gemini ──────────────────────────────────────────────────────────
-    GEMINI_API_KEY: str = "AQ.Ab8RN6Jx254gPcMElEsUaNyHTWSjCiuBFzUvkbIji0rGFfbNNA"
+    # GEMINI_API_KEY: str = "AQ.Ab8RN6Jx254gPcMElEsUaNyHTWSjCiuBFzUvkbIji0rGFfbNNA"
+    GEMINI_API_KEY: str = ""
+
+    # ── LLM / Groq fallback ───────────────────────────────────────────────────
+    GROQ_API_KEY: str = ""  # Set to enable Groq as Gemini fallback (llama-3.3-70b-versatile)
 
     # ── Diagnostics ───────────────────────────────────────────────────────────
     FAKE_DIAGNOSTICS: bool = True

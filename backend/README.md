@@ -51,7 +51,7 @@ Settings can be customized via the `.env` file (processed by `pydantic-settings`
 
 | Variable | Description | Default |
 | -------- | ----------- | ------- |
-| `DATABASE_URL` | SQLite connection string. | `sqlite:///./noc_automation.db` |
+| `DATABASE_URL` | SQLite connection string. | `sqlite:///./noc-automation2.db` |
 | `SECRET_KEY` | Key for signing JWTs. | `change-me-in-production...` |
 | `ALGORITHM` | JWT signing algorithm. | `HS256` |
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | Access Token lifetime. | `30` |

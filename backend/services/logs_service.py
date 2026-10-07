@@ -36,7 +36,7 @@ async def get_event_logs(
         conn: Active database connection.
         device_id: Filter by specific device.
         event_type_id: Filter by specific event type.
-        severity: Filter by severity (Critical/Warning/Info/Unknown).
+        severity: Filter by severity (P1/P2/P3/P4).
         search: Full-text search in ``message`` or ``raw_detail``.
         page: Page number (1-indexed).
         page_size: Items per page (max enforced by router).

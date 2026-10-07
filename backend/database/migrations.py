@@ -82,6 +82,33 @@ CREATE INDEX IF NOT EXISTS idx_ingest_jobs_status ON ingest_jobs(status);
 """
 
 # ---------------------------------------------------------------------------
+# Ticket solution summaries (pre-computed per device+event_type)
+# ---------------------------------------------------------------------------
+
+CREATE_TICKET_SOLUTION_SUMMARIES_TABLE = """
+CREATE TABLE IF NOT EXISTS ticket_solution_summaries (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    device_id       INTEGER NOT NULL,
+    event_type_id   INTEGER NOT NULL,
+    hypothesis      TEXT    NOT NULL,
+    recommended_steps TEXT  NOT NULL,   -- JSON array stored as text
+    confidence      TEXT    NOT NULL DEFAULT 'medium'
+                    CHECK(confidence IN ('high', 'medium', 'low')),
+    generated_by    TEXT    NOT NULL DEFAULT 'rule-based',
+    source_tickets  TEXT,               -- JSON array of ticket numbers used
+    created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
+
+    UNIQUE(device_id, event_type_id)
+);
+"""
+
+CREATE_TSS_IDX = """
+CREATE INDEX IF NOT EXISTS idx_tss_device_event
+ON ticket_solution_summaries(device_id, event_type_id);
+"""
+
+# ---------------------------------------------------------------------------
 # Token blocklist (for logout invalidation)
 # ---------------------------------------------------------------------------
 
@@ -112,6 +139,8 @@ ALL_MIGRATIONS: list[tuple[str, str]] = [
     ("ingest_jobs status index", CREATE_INGEST_JOBS_IDX),
     ("token_blocklist table", CREATE_TOKEN_BLOCKLIST_TABLE),
     ("token_blocklist jti index", CREATE_TOKEN_BLOCKLIST_IDX),
+    ("ticket_solution_summaries table", CREATE_TICKET_SOLUTION_SUMMARIES_TABLE),
+    ("ticket_solution_summaries index", CREATE_TSS_IDX),
 ]
 
 

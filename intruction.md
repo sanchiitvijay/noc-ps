@@ -29,10 +29,10 @@ route
 │                              │
 │  Mock SolarWinds Monitoring  │
 │                              │
-│  🔴 CRITICAL                 │
+│  🔴 P1                       │
 │  AP-BLR-Flr3 Down            │
 │                              │
-│  🟡 WARNING                  │
+│  🟡 P2                       │
 │  SW-CORE-02                  │
 │  High Packet Loss            │
 │                              │

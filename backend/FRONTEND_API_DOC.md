@@ -145,9 +145,9 @@ curl -X GET "http://localhost:8000/get-metrics" \
   "total_devices": 6583,
   "total_events_all_time": 134385,
   "events_by_severity": {
-    "Critical": 412,
-    "Warning": 19020,
-    "Info": 114953
+    "P1": 412,
+    "P2": 19020,
+    "P3": 114953
   },
   "events_by_category": {
     "connectivity": 240,
@@ -183,7 +183,7 @@ Retrieves paginated event logs.
 **Query Parameters:**
 - `device_id` (optional, int)
 - `event_type_id` (optional, int)
-- `severity` (optional, str) - e.g. "Critical", "Warning", "Info"
+- `severity` (optional, str) - e.g. "P1", "P2", "P3"
 - `search` (optional, str) - Text search over message or raw detail.
 - `page` (optional, int) - Defaults to 1
 - `page_size` (optional, int) - Defaults to 50
@@ -199,7 +199,7 @@ Retrieves paginated event logs.
       "event_id": 123236587,
       "event_time": "02:25:17.687",
       "event_type_name": "Node Down",
-      "severity": "Critical",
+      "severity": "P1",
       "message": "SW-CORE-02 is down. 100% packet loss.",
       "device_id": 42,
       "device_name": "SW-CORE-02"
@@ -208,11 +208,93 @@ Retrieves paginated event logs.
 }
 ```
 
+### 3.2 Simulate Event Logs (Live Stream / Demo Polling)
+**GET** `/simulate/logs`
+
+*(Requires Bearer Token — any role)*  
+Returns a set of randomly selected recent event logs to allow the frontend to demonstrate live-streaming, real-time alert tickers, auto-refresh polling, or dynamic dashboard updates without requiring an active real-time backend pipeline.
+
+The response returns a shuffled mix of:
+- **Real rows** randomly sampled from the database (`simulated: false`).
+- **Synthetic rows** generated in-memory with realistic network alarm messages, IPs, and severities (`simulated: true`). If the database has fewer real rows than requested, synthetic rows automatically backfill the remainder.
+
+**Query Parameters:**
+| Parameter | Type | Required | Default | Range | Description |
+|---|---|---|---|---|---|
+| `count` | integer | No | `10` | `1` – `50` | Number of random log entries to return. |
+| `synthetic_ratio` | float | No | `0.0` | `0.0` – `1.0` | Fraction of results that should be synthetic (`0.0` = all real rows if available, `1.0` = 100% synthetic rows). |
+
+**Sample Curl:**
+```bash
+curl -X GET "http://localhost:8000/simulate/logs?count=5&synthetic_ratio=0.2" \
+  -H "Authorization: Bearer <your_access_token>"
+```
+
+**Response (200 OK):**
+```json
+{
+  "success": true,
+  "message": "OK",
+  "data": [
+    {
+      "event_id": 123236587,
+      "event_time": "02:25:17.687",
+      "event_type_name": "Node Down",
+      "severity": "P1",
+      "category": "connectivity",
+      "message": "SW-CORE-02 is down. 100% packet loss.",
+      "device_id": 42,
+      "device_name": "SW-CORE-02",
+      "ip_address": "10.10.10.5",
+      "current_status": 0,
+      "raw_detail": null,
+      "simulated": false
+    },
+    {
+      "event_id": 900001,
+      "event_time": "14:01:23.000",
+      "event_type_name": "High CPU",
+      "severity": "P2",
+      "category": "performance",
+      "message": "High CPU utilization: 92% for 5 minutes",
+      "device_id": 105,
+      "device_name": "SIM-DEVICE-012",
+      "ip_address": "10.45.12.3",
+      "current_status": 1,
+      "raw_detail": null,
+      "simulated": true
+    }
+  ],
+  "meta": {
+    "total_returned": 2,
+    "real_count": 1,
+    "synthetic_count": 1
+  }
+}
+```
+
+**Payload Field Descriptions:**
+- `event_id` *(int)*: Unique identifier of the event.
+- `event_time` *(string)*: Timestamp of the event log.
+- `event_type_name` *(string)*: Event type name (e.g. `"Node Down"`, `"Interface Down"`, `"High CPU"`, `"Node Up"`).
+- `severity` *(string)*: Alert severity (`P1`, `P2`, `P3`, `P4`).
+- `category` *(string)*: Category (`interface`, `performance`, `wireless`, `connectivity`, `system`).
+- `message` *(string)*: Descriptive alert message.
+- `device_id` *(int)*: Associated device ID.
+- `device_name` *(string)*: Hostname or device label.
+- `ip_address` *(string)*: IP address of the device.
+- `current_status` *(int)*: Device status (`0` = down/offline, `1` = up/online).
+- `raw_detail` *(string | null)*: Optional raw event details.
+- `simulated` *(boolean)*: `true` if synthetic mock entry; `false` if retrieved from the database.
+- `meta.total_returned` *(int)*: Total count of items returned in `data`.
+- `meta.real_count` *(int)*: Number of real database rows returned.
+- `meta.synthetic_count` *(int)*: Number of synthetic entries generated.
+
 ---
 
 ## 4. Diagnostics & Analysis
 
-### 4.1 Automated Analyst Error Info Panel
+### 4.1 Automated Analyst Error P3 Panel
 **GET** `/error-info`
 
 *(Requires Bearer Token)*  

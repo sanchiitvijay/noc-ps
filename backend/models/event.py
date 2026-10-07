@@ -14,7 +14,7 @@ class EventType:
     Attributes:
         event_type_id: Primary key.
         event_type_name: Human-readable name.
-        severity: One of Critical / Warning / Info / Unknown.
+        severity: One of P1 / P2 / P3 / P4.
         category: One of connectivity / interface / performance / wireless / power / other.
     """
 

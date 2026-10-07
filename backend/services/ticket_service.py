@@ -196,21 +196,12 @@ async def count_device_event_type_incidents(
     Returns:
         Integer count of matching event_logs rows.
     """
-    if bucket_limit is not None:
-        row = await fetch_one(
-            conn,
-            """
-            SELECT COUNT(*) AS cnt FROM event_logs
-            WHERE device_id = ? AND event_type_id = ? AND event_id >= ?
-            """,
-            (device_id, event_type_id, bucket_limit),
-        )
-    else:
-        row = await fetch_one(
-            conn,
-            "SELECT COUNT(*) AS cnt FROM event_logs WHERE device_id = ? AND event_type_id = ?",
-            (device_id, event_type_id),
-        )
+    
+    row = await fetch_one(
+        conn,
+        "SELECT COUNT(*) AS cnt FROM event_logs WHERE device_id = ? AND event_type_id = ?",
+        (device_id, event_type_id),
+    )
     return row["cnt"] if row else 0
 
 

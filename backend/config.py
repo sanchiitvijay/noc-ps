@@ -47,7 +47,7 @@ class Settings(BaseSettings):
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
 
     # ── LLM / Gemini ──────────────────────────────────────────────────────────
-    # GEMINI_API_KEY: str = "AQ.Ab8RN6Jx254gPcMElEsUaNyHTWSjCiuBFzUvkbIji0rGFfbNNA"
+    # GEMINI_API_KEY: str = "AQ."
     GEMINI_API_KEY: str = ""
 
     # ── LLM / Groq fallback ───────────────────────────────────────────────────
@@ -62,6 +62,8 @@ class Settings(BaseSettings):
 
     # ── Logging ───────────────────────────────────────────────────────────────
     LOG_LEVEL: str = "INFO"
+    DEV_LOG_ENABLED: bool = True
+    DEV_LOG_FILE: str = "log.txt"
 
     # ── Ingest ────────────────────────────────────────────────────────────────
     MAX_INGEST_FILE_SIZE_MB: int = 100

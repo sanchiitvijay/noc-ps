@@ -27,6 +27,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from config import settings
 from database.migrations import create_default_admin, run_migrations
 from middleware.activity_logger import ActivityLoggerMiddleware
+from middleware.dev_logger import DevLoggingMiddleware
 from routers import admin, auth, error_info, internal, logs, metrics, simulation, solution_summaries
 from utils.exceptions import register_exception_handlers
 
@@ -113,6 +114,10 @@ def create_app() -> FastAPI:
 
     # ── Activity logger (must be added AFTER CORS so CORS headers are set first)
     app.add_middleware(ActivityLoggerMiddleware)
+
+    # ── Dev logger (records route, latency, and all SQL queries/data to log.txt)
+    if settings.DEV_LOG_ENABLED:
+        app.add_middleware(DevLoggingMiddleware)
 
     # ── Exception handlers ────────────────────────────────────────────────────
     register_exception_handlers(app)

@@ -13,14 +13,22 @@ aiosqlite.
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime
 import logging
 import sqlite3
+import time
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator, Any
 
 from fastapi import HTTPException
 from config import settings
 from utils.exceptions import NOCException
+
+try:
+    from middleware.dev_logger import record_sql_query
+except ImportError:
+    def record_sql_query(record: dict) -> None:
+        pass
 
 logger = logging.getLogger(__name__)
 
@@ -55,12 +63,49 @@ class AsyncConnection:
         Returns:
             An ``AsyncCursor`` wrapping the result.
         """
+        start_time = time.perf_counter()
+
         def _run():
             cur = self._conn.execute(query, params)
             return cur
 
-        cursor = await asyncio.to_thread(_run)
-        return AsyncCursor(cursor, self._conn)
+        try:
+            cursor = await asyncio.to_thread(_run)
+            duration_ms = (time.perf_counter() - start_time) * 1000.0
+
+            clean_q = query.strip().upper()
+            is_select = clean_q.startswith(("SELECT", "PRAGMA", "EXPLAIN", "WITH"))
+
+            query_record = {
+                "query": query,
+                "params": params,
+                "duration_ms": duration_ms,
+                "timestamp": datetime.now(),
+                "rowcount": getattr(cursor, "rowcount", -1),
+                "lastrowid": getattr(cursor, "lastrowid", None),
+                "is_select": is_select,
+                "rows": [],
+                "fetched": False,
+                "error": None,
+            }
+            record_sql_query(query_record)
+            return AsyncCursor(cursor, self._conn, query_record)
+        except Exception as exc:
+            duration_ms = (time.perf_counter() - start_time) * 1000.0
+            query_record = {
+                "query": query,
+                "params": params,
+                "duration_ms": duration_ms,
+                "timestamp": datetime.now(),
+                "rowcount": -1,
+                "lastrowid": None,
+                "is_select": False,
+                "rows": [],
+                "fetched": False,
+                "error": str(exc),
+            }
+            record_sql_query(query_record)
+            raise
 
     async def executemany(self, query: str, params_list: list[tuple]) -> None:
         """Execute a statement against multiple parameter sets.
@@ -69,7 +114,41 @@ class AsyncConnection:
             query: SQL string with ``?`` placeholders.
             params_list: List of parameter tuples.
         """
-        await asyncio.to_thread(self._conn.executemany, query, params_list)
+        start_time = time.perf_counter()
+        try:
+            await asyncio.to_thread(self._conn.executemany, query, params_list)
+            duration_ms = (time.perf_counter() - start_time) * 1000.0
+            query_record = {
+                "query": query,
+                "params": params_list,
+                "duration_ms": duration_ms,
+                "timestamp": datetime.now(),
+                "batch_count": len(params_list),
+                "rowcount": getattr(self._conn, "total_changes", -1),
+                "lastrowid": None,
+                "is_select": False,
+                "rows": [],
+                "fetched": False,
+                "error": None,
+            }
+            record_sql_query(query_record)
+        except Exception as exc:
+            duration_ms = (time.perf_counter() - start_time) * 1000.0
+            query_record = {
+                "query": query,
+                "params": params_list,
+                "duration_ms": duration_ms,
+                "timestamp": datetime.now(),
+                "batch_count": len(params_list),
+                "rowcount": -1,
+                "lastrowid": None,
+                "is_select": False,
+                "rows": [],
+                "fetched": False,
+                "error": str(exc),
+            }
+            record_sql_query(query_record)
+            raise
 
     async def commit(self) -> None:
         """Commit the current transaction."""
@@ -95,31 +174,73 @@ class AsyncConnection:
 class AsyncCursor:
     """Async cursor returned by ``AsyncConnection.execute``.
 
-    Wraps a ``sqlite3.Cursor`` and exposes async ``fetchone``/``fetchall``
-    methods and the ``lastrowid`` property.
+    Wraps a ``sqlite3.Cursor`` and exposes async ``fetchone``/``fetchall``/``fetchmany``
+    methods, the ``lastrowid`` property, and the ``rowcount`` property.
     """
 
-    def __init__(self, cursor: sqlite3.Cursor, conn: sqlite3.Connection) -> None:
+    def __init__(
+        self,
+        cursor: sqlite3.Cursor,
+        conn: sqlite3.Connection,
+        query_record: dict | None = None,
+    ) -> None:
         self._cursor = cursor
         self._conn = conn
+        self._query_record = query_record
 
     @property
     def lastrowid(self) -> int | None:
         """Return the rowid of the last inserted row."""
         return self._cursor.lastrowid
 
+    @property
+    def rowcount(self) -> int:
+        """Return the number of affected rows."""
+        return self._cursor.rowcount
+
     async def fetchone(self) -> dict | None:
         """Fetch and return the next row as a dict, or None."""
         row = await asyncio.to_thread(self._cursor.fetchone)
         if row is None:
+            if self._query_record is not None:
+                self._query_record["fetched"] = True
             return None
         # sqlite3.Row supports dict(row) when row_factory = sqlite3.Row
-        return dict(row)
+        dict_row = dict(row) if isinstance(row, sqlite3.Row) else row
+        if self._query_record is not None:
+            self._query_record["rows"].append(dict(dict_row) if isinstance(dict_row, dict) else dict_row)
+            self._query_record["fetched"] = True
+        return dict_row
 
     async def fetchall(self) -> list[dict]:
         """Fetch and return all remaining rows as a list of dicts."""
         rows = await asyncio.to_thread(self._cursor.fetchall)
-        return [dict(r) for r in rows]
+        dict_rows = [
+            dict(r) if isinstance(r, sqlite3.Row) else r
+            for r in rows
+        ]
+        if self._query_record is not None:
+            self._query_record["rows"].extend([
+                dict(r) if isinstance(r, dict) else r
+                for r in dict_rows
+            ])
+            self._query_record["fetched"] = True
+        return dict_rows
+
+    async def fetchmany(self, size: int = 1) -> list[dict]:
+        """Fetch and return up to *size* rows as a list of dicts."""
+        rows = await asyncio.to_thread(self._cursor.fetchmany, size)
+        dict_rows = [
+            dict(r) if isinstance(r, sqlite3.Row) else r
+            for r in rows
+        ]
+        if self._query_record is not None:
+            self._query_record["rows"].extend([
+                dict(r) if isinstance(r, dict) else r
+                for r in dict_rows
+            ])
+            self._query_record["fetched"] = True
+        return dict_rows
 
     # Context manager so callers can write:
     #   async with conn.execute(...) as cur:

@@ -38,7 +38,7 @@ class Settings(BaseSettings):
     )
 
     # ── Database ──────────────────────────────────────────────────────────────
-    DATABASE_URL: str = "sqlite:////Users/sanchitvijay/working/noc-ps/noc-automation2.db"
+    DATABASE_URL: str = "sqlite:////Users/sanchitvijay/working/noc-ps/noc_automation_4.db"
 
     # ── JWT / Auth ────────────────────────────────────────────────────────────
     SECRET_KEY: str = "change-me-in-production-use-a-long-random-string"
@@ -62,7 +62,7 @@ class Settings(BaseSettings):
 
     # ── Logging ───────────────────────────────────────────────────────────────
     LOG_LEVEL: str = "INFO"
-    DEV_LOG_ENABLED: bool = True
+    DEV_LOG_ENABLED: bool = False
     DEV_LOG_FILE: str = "log.txt"
 
     # ── Ingest ────────────────────────────────────────────────────────────────

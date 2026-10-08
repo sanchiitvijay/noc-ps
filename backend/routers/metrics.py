@@ -8,7 +8,7 @@ import logging
 from typing import Annotated
 
 import aiosqlite
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import JSONResponse
 
 from database.connection import get_connection
@@ -27,7 +27,7 @@ router = APIRouter(tags=["Metrics"])
         200: {
             "description": (
                 "Comprehensive metrics payload including event counts, severity breakdown, "
-                "top devices, 30-bucket trend, ticket stats, and device count."
+                "top devices, and event trend."
             )
         },
         401: {"description": "Authentication required"},
@@ -36,34 +36,11 @@ router = APIRouter(tags=["Metrics"])
 )
 async def get_metrics(
     current_user: Annotated[dict, Depends(get_current_user)],
+    time_window: str = Query("all", description="Time window: 24h, 7d, 30d, all"),
     conn: aiosqlite.Connection = Depends(get_connection),
 ) -> JSONResponse:
-    """Return a comprehensive metrics payload for the NOC dashboard.
-
-    Includes:
-    - Total event counts (all time + approximate time windows)
-    - Events grouped by severity and category
-    - Top 10 alerting devices
-    - 30-bucket event trend
-    - ServiceNow ticket statistics
-    - Total device count
-
-    Note:
-        ``event_logs.event_time`` contains time-only values (HH:MM:SS.mmm).
-        Temporal window counts are approximated from event_id ranges.
-
-    Args:
-        current_user: Authenticated user (any role).
-        conn: Injected database connection.
-
-    Returns:
-        200 response with full metrics dict.
-
-    Raises:
-        500: On unexpected database errors.
-    """
     try:
-        data = await build_metrics(conn)
+        data = await build_metrics(conn, time_window)
         return JSONResponse(
             status_code=200,
             content={"success": True, "message": "OK", "data": data},

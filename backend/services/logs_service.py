@@ -28,88 +28,105 @@ async def get_event_logs(
     page: int = 1,
     page_size: int = 50,
 ) -> dict:
-    """Fetch paginated event_logs with optional filters.
-
-    Joins with ``devices`` and ``event_type_lookup`` to enrich each row.
-
-    Args:
-        conn: Active database connection.
-        device_id: Filter by specific device.
-        event_type_id: Filter by specific event type.
-        severity: Filter by severity (P1/P2/P3/P4).
-        search: Full-text search in ``message`` or ``raw_detail``.
-        page: Page number (1-indexed).
-        page_size: Items per page (max enforced by router).
-
-    Returns:
-        Dict with ``data`` (list of enriched rows) and ``meta`` (pagination).
-    """
-    # Build WHERE clause dynamically
     conditions: list[str] = []
     params: list = []
 
     if device_id is not None:
-        conditions.append("el.device_id = ?")
+        conditions.append("event_logs.device_id = ?")
         params.append(device_id)
 
     if event_type_id is not None:
-        conditions.append("el.event_type_id = ?")
+        conditions.append("event_logs.event_type_id = ?")
         params.append(event_type_id)
 
     if severity is not None:
-        conditions.append("etl.severity = ?")
-        params.append(severity)
+        # Pre-resolve severity to event_type_ids to avoid joining the whole table
+        et_rows = await fetch_all(
+            conn, 
+            "SELECT event_type_id FROM event_type_lookup WHERE severity = ?", 
+            (severity,)
+        )
+        valid_et_ids = [str(r["event_type_id"]) for r in et_rows]
+        if valid_et_ids:
+            placeholders = ",".join(valid_et_ids)
+            conditions.append(f"event_logs.event_type_id IN ({placeholders})")
+        else:
+            # Severity matched nothing, so return no results immediately
+            return {"data": [], "meta": paginate(0, page, page_size)}
 
     if search:
-        # Search across message and raw_detail fields
-        conditions.append("(el.message LIKE ? OR el.raw_detail LIKE ?)")
+        conditions.append("(event_logs.message LIKE ? OR event_logs.raw_detail LIKE ?)")
         like_term = f"%{search}%"
         params.extend([like_term, like_term])
 
     where_clause = ("WHERE " + " AND ".join(conditions)) if conditions else ""
 
-    base_query = f"""
-        FROM event_logs el
-        LEFT JOIN devices d          ON el.device_id     = d.device_id
-        LEFT JOIN event_type_lookup etl ON el.event_type_id = etl.event_type_id
-        {where_clause}
-    """
-
-    # COUNT query for pagination metadata
-    count_row = await fetch_one(
-        conn, f"SELECT COUNT(*) AS cnt {base_query}", tuple(params)
-    )
+    # Extremely fast COUNT (no joins)
+    count_query = f"SELECT COUNT(*) AS cnt FROM event_logs {where_clause}"
+    count_row = await fetch_one(conn, count_query, tuple(params))
     total = count_row["cnt"] if count_row else 0
+
+    if total == 0:
+        return {"data": [], "meta": paginate(0, page, page_size)}
 
     offset = get_offset(page, page_size)
 
-    # Data query with LIMIT/OFFSET
-    rows = await fetch_all(
-        conn,
-        f"""
-        SELECT
-            el.event_id,
-            el.event_time,
-            el.event_type_id,
-            el.event_type_name,
-            etl.severity,
-            etl.category,
-            el.message,
-            el.device_id,
-            d.device_name,
-            d.ip_address,
-            d.site_code,
-            el.current_status,
-            el.raw_detail
-        {base_query}
-        ORDER BY el.event_id DESC
+    # 1. Fetch ONLY the base event_logs (fast, uses index for ORDER BY)
+    base_data_query = f"""
+        SELECT *
+        FROM event_logs
+        {where_clause}
+        ORDER BY event_id DESC
         LIMIT ? OFFSET ?
-        """,
-        tuple(params) + (page_size, offset),
-    )
+    """
+    base_rows = await fetch_all(conn, base_data_query, tuple(params) + (page_size, offset))
+
+    # 2. Extract IDs for related entities
+    dev_ids = list({r["device_id"] for r in base_rows if r["device_id"] is not None})
+    et_ids = list({r["event_type_id"] for r in base_rows if r["event_type_id"] is not None})
+
+    # 3. Fetch related devices (batch lookup)
+    dev_map = {}
+    if dev_ids:
+        placeholders = ",".join(["?"] * len(dev_ids))
+        d_rows = await fetch_all(
+            conn,
+            f"SELECT device_id, device_name, ip_address, site_code FROM devices WHERE device_id IN ({placeholders})",
+            tuple(dev_ids),
+        )
+        dev_map = {r["device_id"]: dict(r) for r in d_rows}
+
+    # 4. Fetch related event types (batch lookup)
+    et_map = {}
+    if et_ids:
+        placeholders = ",".join(["?"] * len(et_ids))
+        et_rows = await fetch_all(
+            conn,
+            f"SELECT event_type_id, severity, category FROM event_type_lookup WHERE event_type_id IN ({placeholders})",
+            tuple(et_ids),
+        )
+        et_map = {r["event_type_id"]: dict(r) for r in et_rows}
+
+    # 5. Enrich rows purely in Python (instant)
+    enriched_rows = []
+    for r in base_rows:
+        row_dict = dict(r)
+        
+        # Enrich device
+        d_info = dev_map.get(row_dict.get("device_id"))
+        row_dict["device_name"] = d_info["device_name"] if d_info else None
+        row_dict["ip_address"] = d_info["ip_address"] if d_info else None
+        row_dict["site_code"] = d_info["site_code"] if d_info else None
+        
+        # Enrich event type
+        e_info = et_map.get(row_dict.get("event_type_id"))
+        row_dict["severity"] = e_info["severity"] if e_info else None
+        row_dict["category"] = e_info["category"] if e_info else None
+        
+        enriched_rows.append(row_dict)
 
     return {
-        "data": rows,
+        "data": enriched_rows,
         "meta": paginate(total, page, page_size),
     }
 
@@ -124,44 +141,50 @@ async def get_activity_logs(
     page: int = 1,
     page_size: int = 50,
 ) -> dict:
-    """Fetch paginated activity_logs, joining username from users table.
-
-    Args:
-        conn: Active database connection.
-        page: Page number (1-indexed).
-        page_size: Items per page.
-
-    Returns:
-        Dict with ``data`` (list of enriched rows) and ``meta`` (pagination).
-    """
     count_row = await fetch_one(conn, "SELECT COUNT(*) AS cnt FROM activity_logs")
     total = count_row["cnt"] if count_row else 0
 
+    if total == 0:
+        return {"data": [], "meta": paginate(0, page, page_size)}
+
     offset = get_offset(page, page_size)
 
-    rows = await fetch_all(
+    # Similar optimization for activity logs, avoid joining full users table in ORDER BY.
+    # First fetch the activity logs directly.
+    base_rows = await fetch_all(
         conn,
         """
-        SELECT
-            al.id,
-            al.user_id,
-            u.username,
-            al.action,
-            al.endpoint,
-            al.ip_address,
-            al.request_body,
-            al.response_status,
-            al.created_at
-        FROM activity_logs al
-        LEFT JOIN users u ON al.user_id = u.id
-        ORDER BY al.id DESC
+        SELECT *
+        FROM activity_logs
+        ORDER BY id DESC
         LIMIT ? OFFSET ?
         """,
         (page_size, offset),
     )
 
+    # Extract user IDs
+    user_ids = list({r["user_id"] for r in base_rows if r["user_id"] is not None})
+    
+    # Batch fetch usernames
+    user_map = {}
+    if user_ids:
+        placeholders = ",".join(["?"] * len(user_ids))
+        u_rows = await fetch_all(
+            conn,
+            f"SELECT id, username FROM users WHERE id IN ({placeholders})",
+            tuple(user_ids),
+        )
+        user_map = {r["id"]: r["username"] for r in u_rows}
+
+    # Enrich
+    enriched_rows = []
+    for r in base_rows:
+        row_dict = dict(r)
+        row_dict["username"] = user_map.get(row_dict.get("user_id"))
+        enriched_rows.append(row_dict)
+
     return {
-        "data": rows,
+        "data": enriched_rows,
         "meta": paginate(total, page, page_size),
     }
 
@@ -175,20 +198,6 @@ async def create_activity_log(
     request_body: str | None = None,
     response_status: int | None = None,
 ) -> int:
-    """Insert a new activity log entry.
-
-    Args:
-        conn: Active database connection.
-        user_id: Foreign key to users (None for unauthenticated).
-        action: e.g. ``"POST /auth/login"``
-        endpoint: Raw path string.
-        ip_address: Client IP.
-        request_body: JSON-serialised body (passwords must be sanitized by caller).
-        response_status: HTTP status code.
-
-    Returns:
-        The new row's primary key id.
-    """
     return await execute_write(
         conn,
         """

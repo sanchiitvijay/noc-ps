@@ -88,7 +88,6 @@ CREATE INDEX IF NOT EXISTS idx_ingest_jobs_status ON ingest_jobs(status);
 CREATE_TICKET_SOLUTION_SUMMARIES_TABLE = """
 CREATE TABLE IF NOT EXISTS ticket_solution_summaries (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
-    device_id       INTEGER NOT NULL,
     event_type_id   INTEGER NOT NULL,
     hypothesis      TEXT    NOT NULL,
     recommended_steps TEXT  NOT NULL,   -- JSON array stored as text
@@ -99,13 +98,13 @@ CREATE TABLE IF NOT EXISTS ticket_solution_summaries (
     created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
 
-    UNIQUE(device_id, event_type_id)
+    UNIQUE(event_type_id)
 );
 """
 
 CREATE_TSS_IDX = """
-CREATE INDEX IF NOT EXISTS idx_tss_device_event
-ON ticket_solution_summaries(device_id, event_type_id);
+CREATE INDEX IF NOT EXISTS idx_tss_event
+ON ticket_solution_summaries(event_type_id);
 """
 
 # ---------------------------------------------------------------------------

@@ -278,11 +278,16 @@ async def generate_suggested_solution(
     prompt = _build_prompt(device, event_type, historical, diagnostics, saved_summary)
 
     def _wrap(parsed: dict, source: str) -> dict:
+        if source in ["gemini", "groq"]:
+            heading = "ai brain"
+        else:
+            heading = "ai brain is not accessible"
+            
         return {
             "hypothesis":        parsed.get("hypothesis", "Unable to determine root cause."),
             "recommended_steps": parsed.get("recommended_steps", []),
             "confidence":        parsed.get("confidence", "low"),
-            "generated_by":      source if has_tickets else "no_ticket_llm",
+            "generated_by":      heading,
             "has_ticket_context": has_tickets,
             "used_saved_summary": saved_summary is not None,
         }
@@ -407,5 +412,5 @@ def _rule_based_fallback(device: dict, event_type: dict, diagnostics: dict) -> d
         "hypothesis":        hypothesis,
         "recommended_steps": steps,
         "confidence":        "medium" if reachable else "high",
-        "generated_by":      "rule-based",
+        "generated_by":      "ai brain is not accessible",
     }

@@ -1,5 +1,5 @@
 """
-Admin router — /admin/activity-log and /admin/ingest-excel.
+Admin router — /admin/activity-log, /admin/ingest-error-csv, and /admin/ingest-ticket-csv.
 
 All routes in this router require the ``admin`` role.
 """
@@ -11,7 +11,7 @@ import logging
 from typing import Annotated
 
 import aiosqlite
-from fastapi import APIRouter, Depends, Query, UploadFile, status
+from fastapi import APIRouter, Depends, Query, UploadFile, status, Form
 from fastapi.responses import JSONResponse
 
 from config import settings
@@ -40,19 +40,6 @@ async def list_activity_logs(
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=50, ge=1, le=200),
 ) -> JSONResponse:
-    """Return a paginated list of all activity log entries.
-
-    Joins the ``users`` table to include the username alongside user_id.
-
-    Args:
-        current_user: Authenticated admin user.
-        conn: Injected database connection.
-        page: Page number (1-indexed).
-        page_size: Items per page.
-
-    Returns:
-        200 response with activity log data and pagination meta.
-    """
     result = await get_activity_logs(conn, page=page, page_size=page_size)
     return JSONResponse(
         status_code=200,
@@ -75,18 +62,6 @@ async def create_manual_activity_log(
     current_user: Annotated[dict, Depends(require_admin)],
     conn: aiosqlite.Connection = Depends(get_connection),
 ) -> JSONResponse:
-    """Manually insert an activity log entry.
-
-    Useful for recording external events or test entries.
-
-    Args:
-        body: ActivityLogCreate with action, endpoint, and optional fields.
-        current_user: Authenticated admin user (becomes the log's user_id).
-        conn: Injected database connection.
-
-    Returns:
-        201 response with the created entry's ID.
-    """
     log_id = await create_activity_log(
         conn,
         user_id=current_user["id"],
@@ -110,39 +85,13 @@ async def create_manual_activity_log(
 # Ingest endpoints
 # ---------------------------------------------------------------------------
 
-
-@router.post(
-    "/ingest-excel",
-    status_code=status.HTTP_202_ACCEPTED,
-    summary="Upload a CSV/Excel file for background ingestion (admin only)",
-)
-async def ingest_excel(
-    current_user: Annotated[dict, Depends(require_admin)],
-    conn: aiosqlite.Connection = Depends(get_connection),
-    file: UploadFile = ...,
+async def _handle_ingest(
+    file: UploadFile,
+    current_user: dict,
+    conn: aiosqlite.Connection,
+    file_type: str,
 ) -> JSONResponse:
-    """Accept a CSV or Excel file upload and queue it for background processing.
-
-    The file is validated for size and extension, then a job record is created
-    in the ``ingest_jobs`` table. The actual processing runs in a background
-    asyncio task — the response returns immediately with a ``job_id``.
-
-    Poll ``GET /admin/ingest-excel/{job_id}`` to check progress.
-
-    Args:
-        current_user: Authenticated admin user.
-        conn: Injected database connection.
-        file: Multipart-uploaded file (CSV or Excel).
-
-    Returns:
-        202 response with the job_id and initial job state.
-
-    Raises:
-        400: If the file extension is not supported.
-        413: If the file exceeds MAX_INGEST_FILE_SIZE_MB.
-    """
-    # Validate file extension
-    allowed_extensions = {".csv", ".xlsx", ".xls"}
+    allowed_extensions = {".csv"}
     filename = file.filename or "upload"
     ext = "." + filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
     if ext not in allowed_extensions:
@@ -155,27 +104,25 @@ async def ingest_excel(
             },
         )
 
-    # Read file and check size
     file_bytes = await file.read()
     if len(file_bytes) > settings.max_ingest_bytes:
         raise FileTooLargeError(settings.MAX_INGEST_FILE_SIZE_MB)
 
-    # Create pending job record
     job = await create_ingest_job(conn, filename=filename, triggered_by=current_user["id"])
     job_id = job["id"]
 
-    # Launch background task — don't await it
     asyncio.create_task(
         process_ingest_job(
             job_id=job_id,
             file_bytes=file_bytes,
             filename=filename,
+            file_type=file_type,
         )
     )
 
     logger.info(
-        "Ingest job %d queued for file '%s' by user %d",
-        job_id, filename, current_user["id"]
+        "Ingest job %d queued for file '%s' (type %s) by user %d",
+        job_id, filename, file_type, current_user["id"]
     )
 
     return JSONResponse(
@@ -196,6 +143,31 @@ async def ingest_excel(
         },
     )
 
+@router.post(
+    "/ingest/error-csv",
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Upload an error CSV file for background ingestion (admin only)",
+)
+async def ingest_error_csv(
+    current_user: Annotated[dict, Depends(require_admin)],
+    conn: aiosqlite.Connection = Depends(get_connection),
+    file: UploadFile = ...,
+) -> JSONResponse:
+    return await _handle_ingest(file, current_user, conn, "event_log")
+
+
+@router.post(
+    "/ingest/ticket-csv",
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Upload a ticket CSV file for background ingestion (admin only)",
+)
+async def ingest_ticket_csv(
+    current_user: Annotated[dict, Depends(require_admin)],
+    conn: aiosqlite.Connection = Depends(get_connection),
+    file: UploadFile = ...,
+) -> JSONResponse:
+    return await _handle_ingest(file, current_user, conn, "ticket")
+
 
 @router.get(
     "/ingest-excel/{job_id}",
@@ -206,19 +178,6 @@ async def get_ingest_status(
     current_user: Annotated[dict, Depends(require_admin)],
     conn: aiosqlite.Connection = Depends(get_connection),
 ) -> JSONResponse:
-    """Poll the status of a previously submitted ingest job.
-
-    Args:
-        job_id: Primary key of the ingest job.
-        current_user: Authenticated admin user.
-        conn: Injected database connection.
-
-    Returns:
-        200 response with current job state and progress.
-
-    Raises:
-        404: If the job_id does not exist.
-    """
     job = await get_ingest_job(conn, job_id)
     return JSONResponse(
         status_code=200,

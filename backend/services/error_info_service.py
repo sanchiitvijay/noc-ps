@@ -106,11 +106,10 @@ async def build_error_info(
     diagnostics = await run_all_diagnostics(target_host)
 
     # Step 5: Check saved solution summary cache (fast path)
-    saved_summary = await get_summary(conn, device["device_id"], event_type_id)
+    saved_summary = await get_summary(conn, event_type_id)
     if saved_summary:
         logger.info(
-            "Found saved solution summary for device_id=%s event_type_id=%s",
-            device["device_id"],
+            "Found saved solution summary for event_type_id=%s",
             event_type_id,
         )
 

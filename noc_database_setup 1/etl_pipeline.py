@@ -3,16 +3,9 @@ NOC Automation ETL Pipeline
 ============================
 Extracts data from CSV files, transforms/cleans it, and loads into SQLite database.
 
-Project: Automated NOC Assistant
-Role: Database Engineer
-Date: October 4, 2026
-
 Usage:
-    python etl_pipeline.py
+    python etl_pipeline.py --error-csv <path> --ticket-csv <path> --db-path <path> --schema-sql <path>
 
-Output:
-    - noc_automation.db (SQLite database in the same directory)
-    - Console output with ETL statistics
 """
 
 import pandas as pd
@@ -21,30 +14,14 @@ import re
 import json
 import os
 import sys
+import argparse
 from pathlib import Path
-
-# ============================================================================
-# CONFIGURATION
-# ============================================================================
-
-BASE_DIR = Path(__file__).parent
-EVENT_CSV = BASE_DIR / "30_Days_EventTypeName_device_name_ANONYMIZED.csv"
-TICKET_CSV = BASE_DIR / "SN_Tickets_NOC_anonymized.csv"
-DB_PATH = BASE_DIR / "noc_automation.db"
-SCHEMA_SQL = BASE_DIR / "schema.sql"
 
 # ============================================================================
 # HELPER FUNCTIONS
 # ============================================================================
 
 def extract_site_code(device_name: str) -> str | None:
-    """Extract leading numeric site code from device name.
-    
-    Examples:
-        '3239_AP101_MERAKI' -> '3239'
-        '0501-Lakewood-NJ-N3048P-40' -> '0501'
-        'DC21-vWLC-01' -> None (not a site code pattern)
-    """
     if pd.isna(device_name) or device_name in ('NULL', 'nan', ''):
         return None
     match = re.match(r'^(\d{3,5})', str(device_name))
@@ -52,15 +29,8 @@ def extract_site_code(device_name: str) -> str | None:
 
 
 def extract_site_name(device_name: str) -> str | None:
-    """Extract location/site name from device name.
-    
-    Examples:
-        '0501-Lakewood-NJ-N3048P-40' -> 'Lakewood-NJ'
-        '3239_AP101_MERAKI' -> None
-    """
     if pd.isna(device_name) or device_name in ('NULL', 'nan', ''):
         return None
-    # Pattern: digits-CityName-State-...
     match = re.match(r'^\d{3,5}[-_]([A-Za-z][\w-]*(?:-[A-Z]{2})?)(?:[-_]|$)', str(device_name))
     if match:
         return match.group(1)
@@ -68,10 +38,6 @@ def extract_site_name(device_name: str) -> str | None:
 
 
 def clean_event_time(raw_time: str) -> str | None:
-    """Clean EventTime by removing [DEVICE_ID] prefix.
-    
-    '[DEVICE_ID] 20:00:04.470' -> '20:00:04.470'
-    """
     if pd.isna(raw_time):
         return None
     cleaned = re.sub(r'^\[DEVICE_ID\]\s*', '', str(raw_time)).strip()
@@ -79,13 +45,6 @@ def clean_event_time(raw_time: str) -> str | None:
 
 
 def extract_ticket_type(ticket_number: str) -> str | None:
-    """Extract ticket type from ticket number.
-    
-    'INC1234567' -> 'INC'
-    'RITM3427686' -> 'RITM'
-    'TASK0012345' -> 'TASK'
-    'CHG0012345' -> 'CHG'
-    """
     if pd.isna(ticket_number):
         return None
     for prefix in ('RITM', 'TASK', 'INC', 'CHG'):
@@ -95,11 +54,6 @@ def extract_ticket_type(ticket_number: str) -> str | None:
 
 
 def extract_fei_codes(text: str) -> list[str]:
-    """Extract FEI/site codes from text fields.
-    
-    'FEI:0374 || FEI0233' -> ['0374', '0233']
-    'FEI 1965' -> ['1965']
-    """
     if pd.isna(text):
         return []
     codes = re.findall(r'FEI[\s:|\-]*(\d{3,5})', str(text), re.IGNORECASE)
@@ -107,19 +61,13 @@ def extract_fei_codes(text: str) -> list[str]:
 
 
 def extract_ips(text: str) -> list[str]:
-    """Extract IP addresses from text.
-    
-    Returns only IPs that look like real private network IPs (10.x.x.x pattern).
-    """
     if pd.isna(text):
         return []
     ips = re.findall(r'\b((?:\d{1,3}\.){3}\d{1,3})\b', str(text))
-    # Filter to real IPs (not masked like 10.141.82.XXX)
     return list(set(ip for ip in ips if 'X' not in ip))
 
 
 def extract_device_names_from_text(text: str, known_devices: set) -> list[str]:
-    """Find known device names mentioned in text."""
     if pd.isna(text):
         return []
     text_str = str(text)
@@ -131,7 +79,6 @@ def extract_device_names_from_text(text: str, known_devices: set) -> list[str]:
 
 
 def log(msg: str):
-    """Print a formatted log message."""
     print(f"  [ETL] {msg}")
 
 
@@ -139,36 +86,31 @@ def log(msg: str):
 # ETL PHASE 1: EXTRACT & CLEAN EVENT LOGS
 # ============================================================================
 
-def etl_events(conn: sqlite3.Connection) -> dict:
-    """Extract, clean, and load event logs into the database."""
+def etl_events(conn: sqlite3.Connection, event_csv: Path) -> dict:
     print("\n" + "=" * 70)
     print("PHASE 1: EVENT LOGS ETL")
     print("=" * 70)
     
     log("Loading CSV...")
-    df = pd.read_csv(EVENT_CSV, low_memory=False)
+    df = pd.read_csv(event_csv, low_memory=False)
     log(f"Loaded {len(df)} rows, {len(df.columns)} columns")
     
-    # ── Clean EventTime ──
     log("Cleaning EventTime (removing [DEVICE_ID] prefix)...")
     df['EventTime_Clean'] = df['EventTime'].apply(clean_event_time)
     cleaned_count = df['EventTime_Clean'].notna().sum()
     log(f"  Cleaned {cleaned_count}/{len(df)} timestamps")
     
-    # ── Replace string NULLs ──
     log("Replacing string NULLs...")
     for col in ['DeviceName', 'IPAddress', 'MachineType', 'Vendor', 'Location']:
         if col in df.columns:
             df[col] = df[col].replace({'NULL': None, 'nan': None, '': None})
     
-    # ── Extract site codes ──
     log("Extracting site codes from DeviceName...")
     df['SiteCode'] = df['DeviceName'].apply(extract_site_code)
     df['SiteName'] = df['DeviceName'].apply(extract_site_name)
     site_count = df['SiteCode'].notna().sum()
     log(f"  Extracted {df['SiteCode'].nunique()} unique site codes from {site_count} rows")
     
-    # ── Map EventType to name ──
     event_type_map = {
         1: 'Node Down', 5: 'Node Up', 10: 'Interface Down', 11: 'Interface Up',
         14: 'EventType-14', 19: 'Interface Status Changed',
@@ -179,16 +121,13 @@ def etl_events(conn: sqlite3.Connection) -> dict:
     }
     df['EventTypeName'] = df['EventType'].map(event_type_map).fillna('Unknown')
     
-    # ── Get raw detail from unnamed columns ──
     unnamed_cols = [c for c in df.columns if 'Unnamed' in str(c)]
     if unnamed_cols and len(unnamed_cols) > 1:
-        # Unnamed: 12 typically has the detail message
         detail_col = unnamed_cols[1] if len(unnamed_cols) > 1 else unnamed_cols[0]
         df['RawDetail'] = df[detail_col]
     else:
         df['RawDetail'] = None
     
-    # ── Build Device Registry ──
     log("Building device registry...")
     devices = df.dropna(subset=['DeviceName']).groupby(
         ['DeviceName', 'IPAddress'], dropna=False
@@ -203,7 +142,6 @@ def etl_events(conn: sqlite3.Connection) -> dict:
     
     log(f"  Found {len(devices)} unique device records")
     
-    # Insert devices
     log("Loading devices into database...")
     device_id_map = {}
     cursor = conn.cursor()
@@ -225,19 +163,17 @@ def etl_events(conn: sqlite3.Connection) -> dict:
                 row['Location'] if pd.notna(row['Location']) else None
             ))
         except Exception as e:
-            pass  # Skip duplicates silently
+            pass
     conn.commit()
     
-    # Build lookup map: (device_name, ip) -> device_id
     cursor.execute("SELECT device_id, device_name, ip_address FROM devices")
     for did, dname, dip in cursor.fetchall():
         device_id_map[(dname, dip)] = did
-        device_id_map[dname] = did  # Also index by name only
+        device_id_map[dname] = did
     
     device_count = cursor.execute("SELECT COUNT(*) FROM devices").fetchone()[0]
     log(f"  Loaded {device_count} devices into database")
     
-    # ── Load Events ──
     log("Loading event logs into database...")
     batch = []
     skipped = 0
@@ -288,34 +224,29 @@ def etl_events(conn: sqlite3.Connection) -> dict:
 # ETL PHASE 2: EXTRACT & CLEAN SERVICENOW TICKETS
 # ============================================================================
 
-def etl_tickets(conn: sqlite3.Connection) -> dict:
-    """Extract, clean, and load ServiceNow tickets into the database."""
+def etl_tickets(conn: sqlite3.Connection, ticket_csv: Path) -> dict:
     print("\n" + "=" * 70)
     print("PHASE 2: SERVICENOW TICKETS ETL")
     print("=" * 70)
     
     log("Loading CSV (latin-1 encoding)...")
-    df = pd.read_csv(TICKET_CSV, low_memory=False, encoding='latin-1')
+    df = pd.read_csv(ticket_csv, low_memory=False, encoding='latin-1')
     log(f"Loaded {len(df)} tickets, {len(df.columns)} columns")
     
-    # ── Get known device names for cross-reference ──
     cursor = conn.cursor()
     cursor.execute("SELECT device_name FROM devices")
     known_devices = set(row[0] for row in cursor.fetchall())
     log(f"  Using {len(known_devices)} known device names for matching")
     
-    # ── Process each ticket ──
     log("Processing tickets: extracting FEI codes, IPs, device names...")
     batch = []
     for _, row in df.iterrows():
-        # Combine all text fields for extraction
         all_text = ' '.join([
             str(row.get('short_description', '') or ''),
             str(row.get('description', '') or ''),
             str(row.get('work_notes', '') or '')
         ])
         
-        # Extract structured data
         fei_codes = extract_fei_codes(all_text)
         ips = extract_ips(all_text)
         dev_names = extract_device_names_from_text(all_text, known_devices)
@@ -350,7 +281,6 @@ def etl_tickets(conn: sqlite3.Connection) -> dict:
     ticket_count = cursor.execute("SELECT COUNT(*) FROM sn_tickets").fetchone()[0]
     log(f"  Loaded {ticket_count} tickets")
     
-    # Stats
     fei_tickets = cursor.execute(
         "SELECT COUNT(*) FROM sn_tickets WHERE extracted_site_codes IS NOT NULL"
     ).fetchone()[0]
@@ -378,7 +308,6 @@ def etl_tickets(conn: sqlite3.Connection) -> dict:
 # ============================================================================
 
 def etl_crossref(conn: sqlite3.Connection) -> dict:
-    """Build the device-ticket cross-reference bridge table."""
     print("\n" + "=" * 70)
     print("PHASE 3: CROSS-REFERENCE MAPPING")
     print("=" * 70)
@@ -386,9 +315,7 @@ def etl_crossref(conn: sqlite3.Connection) -> dict:
     cursor = conn.cursor()
     total_links = 0
     
-    # ── Strategy 1: Match by Site Code (Highest confidence) ──
     log("Strategy 1: Matching by FEI/Site Code (confidence: 0.9)...")
-    
     cursor.execute("SELECT device_id, site_code FROM devices WHERE site_code IS NOT NULL")
     device_sites = cursor.fetchall()
     
@@ -403,7 +330,6 @@ def etl_crossref(conn: sqlite3.Connection) -> dict:
             except (json.JSONDecodeError, TypeError):
                 continue
             
-            # Normalize comparison: strip leading zeros for matching
             dev_site_normalized = dev_site.lstrip('0') or '0'
             for ts in tkt_sites:
                 ts_normalized = ts.lstrip('0') or '0'
@@ -422,9 +348,7 @@ def etl_crossref(conn: sqlite3.Connection) -> dict:
     log(f"  Site code matches: {site_matches}")
     total_links += site_matches
     
-    # ── Strategy 2: Match by Device Name (Medium confidence) ──
     log("Strategy 2: Matching by Device Name (confidence: 0.8)...")
-    
     cursor.execute("SELECT device_id, device_name FROM devices WHERE device_name IS NOT NULL")
     all_devices = cursor.fetchall()
     
@@ -454,9 +378,7 @@ def etl_crossref(conn: sqlite3.Connection) -> dict:
     log(f"  Device name matches: {name_matches}")
     total_links += name_matches
     
-    # ── Strategy 3: Match by IP Address (Lower confidence) ──
     log("Strategy 3: Matching by IP Address (confidence: 0.7)...")
-    
     cursor.execute("SELECT device_id, ip_address FROM devices WHERE ip_address IS NOT NULL")
     device_ips = cursor.fetchall()
     
@@ -464,7 +386,6 @@ def etl_crossref(conn: sqlite3.Connection) -> dict:
     ticket_ips = cursor.fetchall()
     
     ip_matches = 0
-    # Build IP -> device_id index for efficiency
     ip_to_devices = {}
     for dev_id, dev_ip in device_ips:
         ip_to_devices.setdefault(dev_ip, []).append(dev_id)
@@ -492,7 +413,6 @@ def etl_crossref(conn: sqlite3.Connection) -> dict:
     log(f"  IP address matches: {ip_matches}")
     total_links += ip_matches
     
-    # ── Summary ──
     final_count = cursor.execute("SELECT COUNT(*) FROM device_ticket_map").fetchone()[0]
     unique_devices = cursor.execute(
         "SELECT COUNT(DISTINCT device_id) FROM device_ticket_map"
@@ -520,56 +440,54 @@ def etl_crossref(conn: sqlite3.Connection) -> dict:
 # ============================================================================
 
 def main():
+    parser = argparse.ArgumentParser(description="NOC Automation ETL Pipeline")
+    parser.add_argument("--error-csv", required=True, type=Path, help="Path to the error (events) CSV file")
+    parser.add_argument("--ticket-csv", required=True, type=Path, help="Path to the ServiceNow ticket CSV file")
+    parser.add_argument("--db-path", required=True, type=Path, help="Path to output SQLite database")
+    parser.add_argument("--schema-sql", required=True, type=Path, help="Path to schema.sql")
+    args = parser.parse_args()
+
     print("=" * 70)
     print("  NOC AUTOMATION - ETL PIPELINE")
     print("  Building database from CSV sources...")
     print("=" * 70)
     
-    # Validate input files exist
-    if not EVENT_CSV.exists():
-        print(f"ERROR: Event log CSV not found: {EVENT_CSV}")
+    if not args.error_csv.exists():
+        print(f"ERROR: Error CSV not found: {args.error_csv}")
         sys.exit(1)
-    if not TICKET_CSV.exists():
-        print(f"ERROR: ServiceNow ticket CSV not found: {TICKET_CSV}")
+    if not args.ticket_csv.exists():
+        print(f"ERROR: Ticket CSV not found: {args.ticket_csv}")
         sys.exit(1)
     
-    # Remove existing DB for clean rebuild
-    if DB_PATH.exists():
-        log(f"Removing existing database: {DB_PATH}")
-        os.remove(DB_PATH)
+    if args.db_path.exists():
+        log(f"Removing existing database: {args.db_path}")
+        os.remove(args.db_path)
     
-    # Connect and create schema
-    log(f"Creating database: {DB_PATH}")
-    conn = sqlite3.Connection(str(DB_PATH))
+    log(f"Creating database: {args.db_path}")
+    conn = sqlite3.Connection(str(args.db_path))
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA synchronous=NORMAL")
-    # FK enforcement disabled during bulk ETL loading, re-enabled after
     conn.execute("PRAGMA foreign_keys=OFF")
     
-    # Execute schema SQL
     log("Executing schema.sql...")
-    if SCHEMA_SQL.exists():
-        with open(SCHEMA_SQL, 'r') as f:
+    if args.schema_sql.exists():
+        with open(args.schema_sql, 'r') as f:
             conn.executescript(f.read())
         log("  Schema created successfully")
     else:
-        print(f"WARNING: schema.sql not found at {SCHEMA_SQL}, creating inline...")
-        # The schema will be created inline by the INSERT statements
+        print(f"WARNING: schema.sql not found at {args.schema_sql}, creating inline...")
     
-    # Run ETL phases
-    event_stats = etl_events(conn)
-    ticket_stats = etl_tickets(conn)
+    event_stats = etl_events(conn, args.error_csv)
+    ticket_stats = etl_tickets(conn, args.ticket_csv)
     crossref_stats = etl_crossref(conn)
     
-    # Re-enable FK enforcement
     conn.execute("PRAGMA foreign_keys=ON")
     
-    # ── Final Report ──
     print("\n" + "=" * 70)
     print("  ETL PIPELINE COMPLETE - SUMMARY")
     print("=" * 70)
-    print(f"\n  Database: {DB_PATH}")
-    print(f"  Size: {DB_PATH.stat().st_size / 1024 / 1024:.1f} MB")
+    print(f"\n  Database: {args.db_path}")
+    print(f"  Size: {args.db_path.stat().st_size / 1024 / 1024:.1f} MB")
     print(f"\n  Events:")
     print(f"    Source rows:    {event_stats['total_rows']:,}")
     print(f"    Devices loaded: {event_stats['devices_loaded']:,}")
@@ -589,9 +507,8 @@ def main():
     print(f"    Tickets linked: {crossref_stats['tickets_linked']}")
     
     conn.close()
-    print(f"\n  Database ready at: {DB_PATH}")
+    print(f"\n  Database ready at: {args.db_path}")
     print("=" * 70)
-
 
 if __name__ == "__main__":
     main()

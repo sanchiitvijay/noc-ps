@@ -236,6 +236,7 @@ async def process_ingest_job(
     job_id: int,
     file_bytes: bytes,
     filename: str,
+    file_type: str = "auto",
 ) -> None:
     """Main background task — parse the uploaded file and ingest into the DB.
 
@@ -267,8 +268,10 @@ async def process_ingest_job(
         # Replace empty strings with NaN for consistent handling
         df.replace("", None, inplace=True)
 
-        file_type = _detect_file_type(df)
-        logger.info("Job %d: detected file type = %s (%d rows)", job_id, file_type, len(df))
+        if file_type == "auto":
+            file_type = _detect_file_type(df)
+            
+        logger.info("Job %d: processing as file type = %s (%d rows)", job_id, file_type, len(df))
 
         async with get_db_context() as conn:
             conn.row_factory = aiosqlite.Row

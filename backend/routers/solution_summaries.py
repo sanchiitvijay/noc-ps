@@ -1,11 +1,8 @@
 """
-Solution summaries router — CRUD for /solution-summaries.
+Solution summaries router — /solution-summaries.
 
-Provides endpoints to manage pre-computed ticket solution summaries stored in
-the ``ticket_solution_summaries`` table. These summaries are checked FIRST
-in the /error-info flow before any LLM call, enabling instant cached responses.
-
-All routes require authentication (any role may read; admin/analyst may write).
+Endpoints for manually reading, writing, and deleting cached LLM solution
+summaries per event type.
 """
 
 from __future__ import annotations
@@ -13,10 +10,11 @@ from __future__ import annotations
 import logging
 from typing import Annotated
 
+from aiosqlite import Connection as AsyncConnection
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import JSONResponse
 
-from database.connection import AsyncConnection, get_connection
+from database.connection import get_connection
 from routers.dependencies import get_current_user, require_analyst_or_admin
 from services.solution_summary_service import (
     delete_summary,
@@ -32,7 +30,7 @@ router = APIRouter(prefix="/solution-summaries", tags=["Solution Summaries"])
 
 
 # ---------------------------------------------------------------------------
-# GET /solution-summaries — list all summaries
+# GET /solution-summaries
 # ---------------------------------------------------------------------------
 
 
@@ -40,39 +38,21 @@ router = APIRouter(prefix="/solution-summaries", tags=["Solution Summaries"])
     "",
     summary="List saved solution summaries",
     responses={
-        200: {"description": "List of saved solution summaries"},
+        200: {"description": "List of summaries"},
         401: {"description": "Authentication required"},
         500: {"description": "Internal server error"},
     },
 )
 async def list_solution_summaries(
     current_user: Annotated[dict, Depends(get_current_user)],
+    event_type_id: int | None = Query(None, description="Filter by event type"),
+    limit: int = Query(50, ge=1, le=100),
+    offset: int = Query(0, ge=0),
     conn: AsyncConnection = Depends(get_connection),
-    device_id: int | None = Query(default=None, description="Filter by device ID"),
-    event_type_id: int | None = Query(default=None, description="Filter by event type ID"),
-    limit: int = Query(default=50, ge=1, le=200, description="Max results"),
-    offset: int = Query(default=0, ge=0, description="Pagination offset"),
 ) -> JSONResponse:
-    """Return a list of saved solution summaries.
-
-    Summaries are pre-computed per device+event_type combination and are
-    checked first in the /error-info flow before calling any external LLM.
-
-    Args:
-        current_user: Authenticated user (any role).
-        conn: Injected database connection.
-        device_id: Optional device filter.
-        event_type_id: Optional event type filter.
-        limit: Max rows to return.
-        offset: Pagination offset.
-
-    Returns:
-        200 with list of summary objects.
-    """
     try:
         summaries = await list_summaries(
             conn,
-            device_id=device_id,
             event_type_id=event_type_id,
             limit=limit,
             offset=offset,
@@ -87,43 +67,31 @@ async def list_solution_summaries(
 
 
 # ---------------------------------------------------------------------------
-# GET /solution-summaries/{device_id}/{event_type_id}
+# GET /solution-summaries/{event_type_id}
 # ---------------------------------------------------------------------------
 
 
 @router.get(
-    "/{device_id}/{event_type_id}",
-    summary="Get a saved solution summary for a device + event type",
+    "/{event_type_id}",
+    summary="Get a saved solution summary for an event type",
     responses={
         200: {"description": "Solution summary found"},
         401: {"description": "Authentication required"},
-        404: {"description": "No summary found for this device + event type"},
+        404: {"description": "No summary found for this event type"},
         500: {"description": "Internal server error"},
     },
 )
 async def get_solution_summary(
-    device_id: int,
     event_type_id: int,
     current_user: Annotated[dict, Depends(get_current_user)],
     conn: AsyncConnection = Depends(get_connection),
 ) -> JSONResponse:
-    """Return the saved solution summary for a specific device + event type pair.
-
-    Args:
-        device_id: Device primary key.
-        event_type_id: Event type primary key.
-        current_user: Authenticated user (any role).
-        conn: Injected database connection.
-
-    Returns:
-        200 with summary object, or 404 if not found.
-    """
     try:
-        summary = await get_summary(conn, device_id, event_type_id)
+        summary = await get_summary(conn, event_type_id)
         if not summary:
             raise NotFoundError(
                 "SolutionSummary",
-                f"device_id={device_id} event_type_id={event_type_id}",
+                f"event_type_id={event_type_id}",
             )
         return JSONResponse(
             status_code=200,
@@ -143,7 +111,7 @@ async def get_solution_summary(
 
 @router.post(
     "",
-    summary="Create or update a solution summary for a device + event type",
+    summary="Create or update a solution summary for an event type",
     responses={
         200: {"description": "Summary upserted successfully"},
         400: {"description": "Invalid input data"},
@@ -157,44 +125,12 @@ async def create_or_update_solution_summary(
     current_user: Annotated[dict, Depends(require_analyst_or_admin)],
     conn: AsyncConnection = Depends(get_connection),
 ) -> JSONResponse:
-    """Insert or update a solution summary.
-
-    Uses upsert semantics — if a summary already exists for the
-    ``device_id`` + ``event_type_id`` pair, it will be overwritten.
-
-    **Request body:**
-    ```json
-    {
-        "device_id": 123,
-        "event_type_id": 45,
-        "hypothesis": "Root cause text...",
-        "recommended_steps": ["Step 1", "Step 2"],
-        "confidence": "high",
-        "generated_by": "analyst",
-        "source_tickets": ["INC001", "INC002"]
-    }
-    ```
-
-    Args:
-        body: JSON body with summary data.
-        current_user: Authenticated analyst or admin.
-        conn: Injected database connection.
-
-    Returns:
-        200 with the upserted summary data.
-
-    Raises:
-        400: If required fields are missing or invalid.
-    """
-    # Validate required fields
-    device_id = body.get("device_id")
     event_type_id = body.get("event_type_id")
     hypothesis = body.get("hypothesis")
     recommended_steps = body.get("recommended_steps")
 
     missing = [
         f for f, v in [
-            ("device_id", device_id),
             ("event_type_id", event_type_id),
             ("hypothesis", hypothesis),
             ("recommended_steps", recommended_steps),
@@ -234,7 +170,6 @@ async def create_or_update_solution_summary(
     try:
         await upsert_summary(
             conn,
-            device_id=int(device_id),
             event_type_id=int(event_type_id),
             hypothesis=str(hypothesis),
             recommended_steps=recommended_steps,
@@ -242,7 +177,7 @@ async def create_or_update_solution_summary(
             generated_by=body.get("generated_by", "analyst"),
             source_tickets=body.get("source_tickets"),
         )
-        saved = await get_summary(conn, int(device_id), int(event_type_id))
+        saved = await get_summary(conn, int(event_type_id))
         return JSONResponse(
             status_code=200,
             content={"success": True, "message": "Solution summary saved", "data": saved},
@@ -253,12 +188,12 @@ async def create_or_update_solution_summary(
 
 
 # ---------------------------------------------------------------------------
-# DELETE /solution-summaries/{device_id}/{event_type_id}
+# DELETE /solution-summaries/{event_type_id}
 # ---------------------------------------------------------------------------
 
 
 @router.delete(
-    "/{device_id}/{event_type_id}",
+    "/{event_type_id}",
     summary="Delete a saved solution summary",
     responses={
         200: {"description": "Summary deleted"},
@@ -269,28 +204,16 @@ async def create_or_update_solution_summary(
     },
 )
 async def delete_solution_summary(
-    device_id: int,
     event_type_id: int,
     current_user: Annotated[dict, Depends(require_analyst_or_admin)],
     conn: AsyncConnection = Depends(get_connection),
 ) -> JSONResponse:
-    """Delete the saved solution summary for a device + event type.
-
-    Args:
-        device_id: Device primary key.
-        event_type_id: Event type primary key.
-        current_user: Authenticated analyst or admin.
-        conn: Injected database connection.
-
-    Returns:
-        200 on success, 404 if no summary exists.
-    """
     try:
-        deleted = await delete_summary(conn, device_id, event_type_id)
+        deleted = await delete_summary(conn, event_type_id)
         if not deleted:
             raise NotFoundError(
                 "SolutionSummary",
-                f"device_id={device_id} event_type_id={event_type_id}",
+                f"event_type_id={event_type_id}",
             )
         return JSONResponse(
             status_code=200,

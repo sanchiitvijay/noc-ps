@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from pydantic import field_validator
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -23,6 +23,7 @@ class Settings(BaseSettings):
         ACCESS_TOKEN_EXPIRE_MINUTES: Lifetime of access tokens in minutes.
         REFRESH_TOKEN_EXPIRE_DAYS: Lifetime of refresh tokens in days.
         GEMINI_API_KEY: Google Gemini API key for LLM features.
+        SOLUTION_SUMMARY_CACHE_TTL_MINUTES: Freshness window for saved solution summaries.
         FAKE_DIAGNOSTICS: If True, ping/traceroute/nslookup return mocked results.
         REAL_DIAGNOSTIC_ENDPOINT: Optional remote endpoint for real diagnostics.
         CORS_ORIGINS: List of allowed CORS origins.
@@ -50,10 +51,11 @@ class Settings(BaseSettings):
 
     # ── LLM / Gemini ──────────────────────────────────────────────────────────
     GEMINI_API_KEY: str = ""
-    # GEMINI_API_KEY: str = ""
 
     # ── LLM / Groq fallback ───────────────────────────────────────────────────
     GROQ_API_KEY: str = ""  # Set to enable Groq as Gemini fallback (llama-3.3-70b-versatile)
+
+    SOLUTION_SUMMARY_CACHE_TTL_MINUTES: int = Field(default=10, gt=0, le=1440)
 
     # ── Diagnostics ───────────────────────────────────────────────────────────
     FAKE_DIAGNOSTICS: bool = True

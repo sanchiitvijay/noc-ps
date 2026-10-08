@@ -120,8 +120,12 @@ async def build_error_info(
             event_id,
         )
 
-    # Step 6: Reuse a fresh summary before contacting either LLM provider.
-    if saved_summary:
+    cached_provider = saved_summary.get("generated_by") if saved_summary else None
+    retry_rule_based = saved_summary is not None and cached_provider == "rule-based"
+
+    # Fresh AI/analyst summaries are cache hits. Rule-based summaries are a
+    # fallback cache only, so retry configured providers before returning them.
+    if saved_summary and not retry_rule_based:
         suggestion = {
             "hypothesis": saved_summary["hypothesis"],
             "recommended_steps": saved_summary["recommended_steps"],
@@ -131,17 +135,23 @@ async def build_error_info(
             "used_saved_summary": True,
         }
     else:
-        logger.info("Generating LLM suggestion (saved_summary=False)")
+        logger.info(
+            "Generating LLM suggestion (saved_summary=%s, retry_rule_based=%s)",
+            saved_summary is not None,
+            retry_rule_based,
+        )
         suggestion = await generate_suggested_solution(
             device=device,
             event_type=event_type,
             historical=historical,
             diagnostics=diagnostics,
+            saved_summary=saved_summary,
         )
 
-    # Step 7: Persist successful AI responses to the cache so future requests are instant.
-    # Rule-based responses are always free to regenerate; skip caching them.
-    if not saved_summary and suggestion.get("generated_by") in ("gemini", "groq"):
+    # Upgrade a rule-based fallback when an AI provider becomes available.
+    if suggestion.get("generated_by") in ("gemini", "groq") and (
+        not saved_summary or retry_rule_based
+    ):
         try:
             from services.solution_summary_service import upsert_summary  # noqa: PLC0415
             ticket_numbers = [
@@ -165,6 +175,15 @@ async def build_error_info(
             )
         except Exception as cache_exc:  # pragma: no cover
             logger.warning("Failed to cache LLM result: %s", cache_exc)
+    elif retry_rule_based and saved_summary:
+        suggestion = {
+            "hypothesis": saved_summary["hypothesis"],
+            "recommended_steps": saved_summary["recommended_steps"],
+            "confidence": saved_summary["confidence"],
+            "generated_by": cached_provider,
+            "has_ticket_context": bool(historical.get("related_tickets")),
+            "used_saved_summary": True,
+        }
 
     return {
         "device":             device,

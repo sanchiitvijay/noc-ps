@@ -2,13 +2,16 @@
 Tests for /solution-summaries CRUD endpoints.
 
 Also validates the delete_summary freshness-filter fix: a summary older
-than 2 hours (simulated by updating its updated_at directly) must still
+than the configured cache TTL (simulated by updating its updated_at directly) must still
 be deletable via the API.
 """
 
 from __future__ import annotations
 
+import sqlite3
+
 from fastapi.testclient import TestClient
+from config import settings
 
 
 _VALID_BODY = {
@@ -52,6 +55,30 @@ class TestSolutionSummariesGet:
     def test_get_summary_unauthenticated(self, client: TestClient):
         resp = client.get("/solution-summaries/1")
         assert resp.status_code == 401
+
+    def test_get_expired_summary_returns_not_found(
+        self,
+        client: TestClient,
+        admin_headers: dict,
+    ):
+        event_id = 999_990
+        created = client.post(
+            "/solution-summaries",
+            json={**_VALID_BODY, "event_id": event_id},
+            headers=admin_headers,
+        )
+        assert created.status_code == 200
+
+        with sqlite3.connect(settings.db_path) as conn:
+            conn.execute(
+                """UPDATE ticket_solution_summaries
+                   SET updated_at = datetime('now', ?)
+                   WHERE event_id = ?""",
+                (f"-{settings.SOLUTION_SUMMARY_CACHE_TTL_MINUTES + 1} minutes", event_id),
+            )
+
+        response = client.get(f"/solution-summaries/{event_id}", headers=admin_headers)
+        assert response.status_code == 404
 
 
 class TestSolutionSummariesPost:

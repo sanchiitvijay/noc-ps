@@ -57,6 +57,7 @@ Settings can be customized via the `.env` file (processed by `pydantic-settings`
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | Access Token lifetime. | `30` |
 | `GEMINI_API_KEY` | Optional primary provider for `/error-info`. | Configure in `.env` |
 | `GROQ_API_KEY` | Optional fallback provider for `/error-info`. | Configure in `.env` |
+| `SOLUTION_SUMMARY_CACHE_TTL_MINUTES` | Freshness lifetime for cached Gemini/Groq summaries. | `10` |
 | `FAKE_DIAGNOSTICS` | If `True`, mocks `ping`, `traceroute`, and `nslookup`. | `True` |
 | `CORS_ORIGINS` | Allowed CORS origins. | `["*"]` |
 | `MAX_INGEST_FILE_SIZE_MB` | File size limit for CSV data ingestion. | `100` |

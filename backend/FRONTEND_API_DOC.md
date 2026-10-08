@@ -422,7 +422,7 @@ curl -X GET "http://localhost:8000/error-info?event_id=123" \
 | `"groq"` | Groq generated the suggestion after Gemini was unavailable or failed |
 | `"rule-based"` | Both providers were unavailable or failed; built-in guidance was used |
 
-`has_ticket_context` indicates whether related tickets were found. Successful Gemini/Groq suggestions are cached by `event_id` for two hours and returned directly on a fresh cache hit. Diagnostics still run on cache hits.
+`has_ticket_context` indicates whether related tickets were found. Successful Gemini/Groq suggestions are cached by `event_id` for `SOLUTION_SUMMARY_CACHE_TTL_MINUTES` (10 minutes by default) and returned directly on a fresh cache hit. Diagnostics still run on cache hits.
 
 ---
 
@@ -499,4 +499,4 @@ All summary endpoints require authentication. Analysts and admins may create, up
 - **POST** `/solution-summaries` creates or updates a summary. Required JSON fields: `event_id`, `hypothesis`, `recommended_steps`. Optional fields: `confidence`, `generated_by`, `source_tickets`.
 - **DELETE** `/solution-summaries/{event_id}` deletes the summary, including an expired summary.
 
-Successful Gemini/Groq suggestions are cached by integer `event_id` for two hours. Cache hits skip the LLM call, but diagnostics still run. Rule-based suggestions are not cached.
+Successful Gemini/Groq suggestions are cached by integer `event_id` for `SOLUTION_SUMMARY_CACHE_TTL_MINUTES` (10 minutes by default). Cache hits skip the LLM call, but diagnostics still run. Rule-based suggestions are not cached.

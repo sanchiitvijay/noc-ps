@@ -255,7 +255,7 @@ The recommendation is a hypothesis and action guide, not a verified root cause o
 - Groq is attempted when Gemini is unavailable and `GROQ_API_KEY` is configured.
 - Rule-based guidance is used when external providers are unavailable.
 - The prompt uses compact device, event, diagnostic, and ticket context; it is not a full ticket export.
-- Successful Gemini/Groq suggestions are saved per event and returned directly for two hours; rule-based fallbacks are not cached.
+- Successful Gemini/Groq suggestions are saved per event and returned directly for `SOLUTION_SUMMARY_CACHE_TTL_MINUTES` (10 minutes by default); rule-based fallbacks are not cached.
 
 AI output should be reviewed by an analyst before it is copied into a ServiceNow record or used to justify a change.
 

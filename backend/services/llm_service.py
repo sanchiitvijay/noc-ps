@@ -3,7 +3,7 @@ LLM service — Gemini API integration for error analysis and suggested solution
 
 Fallback chain:
   1. Gemini (primary — google.generativeai)
-  2. Groq  (fallback — groq SDK, model: moonshotai/kimi-k2-instruct ~120B-class OSS)
+    2. Groq  (fallback — groq SDK, model: openai/gpt-oss-20b)
   3. Rule-based (final fallback — always succeeds)
 
 Sends only minimal, essential context to the LLM (device type, event, ping
@@ -21,6 +21,7 @@ import logging
 from config import settings
 
 logger = logging.getLogger(__name__)
+GROQ_MODEL = "openai/gpt-oss-20b"
 
 # Lazy singletons to avoid startup failures when API keys are absent
 _genai = None
@@ -210,21 +211,10 @@ async def _call_gemini(prompt: str) -> dict:
 
 
 async def _call_groq(prompt: str) -> dict:
-    """Call the Groq API (moonshotai/kimi-k2-instruct — 120B-class OSS) and return parsed JSON.
-
-    Args:
-        prompt: The prompt string.
-
-    Returns:
-        Parsed dict with hypothesis, recommended_steps, confidence.
-
-    Raises:
-        Exception: On API or parse failure.
-    """
+    """Call the Groq API using the configured account's available model."""
     client = _get_groq()
-    # moonshotai/kimi-k2-instruct is a ~120B-class open-source model on Groq
     completion = client.chat.completions.create(
-        model="moonshotai/kimi-k2-instruct",
+        model=GROQ_MODEL,
         messages=[
             {
                 "role": "system",
@@ -278,16 +268,11 @@ async def generate_suggested_solution(
     prompt = _build_prompt(device, event_type, historical, diagnostics, saved_summary)
 
     def _wrap(parsed: dict, source: str) -> dict:
-        if source in ["gemini", "groq"]:
-            heading = "ai brain"
-        else:
-            heading = "ai brain is not accessible"
-            
         return {
             "hypothesis":        parsed.get("hypothesis", "Unable to determine root cause."),
             "recommended_steps": parsed.get("recommended_steps", []),
             "confidence":        parsed.get("confidence", "low"),
-            "generated_by":      heading,
+            "generated_by":      source,
             "has_ticket_context": has_tickets,
             "used_saved_summary": saved_summary is not None,
         }
@@ -412,5 +397,5 @@ def _rule_based_fallback(device: dict, event_type: dict, diagnostics: dict) -> d
         "hypothesis":        hypothesis,
         "recommended_steps": steps,
         "confidence":        "medium" if reachable else "high",
-        "generated_by":      "ai brain is not accessible",
+        "generated_by":      "rule-based",
     }

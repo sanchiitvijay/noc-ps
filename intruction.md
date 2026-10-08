@@ -15,14 +15,22 @@ route
  1. post - /auth/login
  2. post - /auth/logout
  3. post - /auth/signup
- 4. get - /get-metrics
- 5. get - /get-logs
- 6. get, post - /admin/activity-log
- 7. post - /internal/traceroute
- 8. post - /internal/ping
- 9. post - /internal/nslookup
- 10. get - /error-info
- 11. post - /admin/ingest-excel
+ 4. get - /auth/me
+ 5. get - /get-metrics
+ 6. get - /get-logs
+ 7. get, post - /admin/activity-log
+ 8. post - /internal/traceroute
+ 9. post - /internal/ping
+ 10. post - /internal/nslookup
+ 11. get - /error-info
+ 12. get - /simulate/logs
+ 13. get, post - /solution-summaries
+ 14. get, delete - /solution-summaries/{event_id}
+ 15. post - /admin/ingest-excel
+ 16. post - /admin/ingest/error-csv
+ 17. post - /admin/ingest/ticket-csv
+ 18. get - /admin/ingest-excel/{job_id}
+ 19. get - /health
 
 ┌──────────────────────────────┐
 │      1. EVENT TRIGGER        │

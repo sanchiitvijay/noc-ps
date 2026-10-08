@@ -81,33 +81,15 @@ Fetches widget data for the NOC dashboard.
 ```json
 {
   "success": true,
-  "message": "Metrics retrieved successfully",
+  "message": "OK",
   "data": {
-    "total_devices": 6583,
-    "total_events_all_time": 134385,
-    "events_by_severity": {
-      "P1": 412,
-      "P2": 19020,
-      "P3": 114953
-    },
-    "events_by_category": {
-      "connectivity": 240,
-      "interface": 1024,
-      "performance": 401,
-      "wireless": 204
-    },
-    "top_alerting_devices": [
-      {
-        "device_name": "0001-AP184-Z3",
-        "ip_address": "10.142.44.184",
-        "event_count": 15
-      }
-    ],
-    "ticket_stats": {
-      "total_tickets": 442,
-      "by_state": { "Pending": 120, "Closed": 300, "Active": 22 },
-      "by_type": { "INC": 300, "RITM": 142 }
-    }
+    "time_window": "all",
+    "total_events": 134385,
+    "events_by_severity": {"P1": 412, "P2": 19020, "P3": 114953, "P4": 0},
+    "events_by_category": {"connectivity": 240, "interface": 1024, "performance": 401, "wireless": 204, "other": 0},
+    "top_alerting_devices": [{"device_name": "0001-AP184-Z3", "event_count": 15}],
+    "events_by_status": {"Up": 20, "Down": 30, "Unknown": 10},
+    "events_trend": [{"time": "2026-40", "count": 50}]
   }
 }
 ```
@@ -121,7 +103,7 @@ Fetches a paginated list of network events.
 ```json
 {
   "success": true,
-  "message": "Logs retrieved successfully",
+  "message": "OK",
   "data": [
     {
       "event_id": 123236587,
@@ -190,7 +172,7 @@ Returns randomly sampled real event logs interleaved with synthetic event logs f
 ```
 
 ### 2.4 Automated Error Analysis Panel (LLM Powered)
-Runs diagnostic checks, looks up past ServiceNow tickets, and queries Gemini for a solution.
+Runs diagnostic checks and looks up past ServiceNow tickets, then tries Gemini, Groq fallback, and built-in rule-based guidance.
 - **Method:** `GET`
 - **URL:** `http://localhost:8000/error-info?event_id=1`
 - **Headers:** `Authorization: Bearer <your_token>`
@@ -198,7 +180,7 @@ Runs diagnostic checks, looks up past ServiceNow tickets, and queries Gemini for
 ```json
 {
   "success": true,
-  "message": "Error info generated successfully",
+  "message": "OK",
   "data": {
     "device": {
       "device_id": 2,
@@ -235,7 +217,7 @@ Runs diagnostic checks, looks up past ServiceNow tickets, and queries Gemini for
       }
     },
     "suggested_solution": {
-      "generated_by": "gemini",
+      "generated_by": "groq",
       "confidence": "high",
       "hypothesis": "Access Point hardware lockup or PoE power loss from upstream switch.",
       "recommended_steps": [
@@ -345,13 +327,21 @@ Runs diagnostic checks, looks up past ServiceNow tickets, and queries Gemini for
 ```json
 {
   "success": true,
-  "message": "File accepted for ingestion. Processing in background.",
+  "message": "File accepted. Job 1 is queued for processing.",
   "data": {
-    "job_id": 1,
-    "filename": "30_Days_EventTypeName_device_name_ANONYMIZED.csv"
+    "id": 1,
+    "filename": "30_Days_EventTypeName_device_name_ANONYMIZED.csv",
+    "status": "pending",
+    "started_at": null,
+    "completed_at": null,
+    "rows_processed": 0,
+    "error_message": null,
+    "triggered_by": 1
   }
 }
 ```
+
+Supported extensions are `.csv`, `.xls`, and `.xlsx`. Poll `GET http://localhost:8000/admin/ingest-excel/1` with the same Bearer token until `data.status` is `completed` or `failed`.
 
 ### 4.2 Get Activity Log
 - **Method:** `GET`
@@ -361,7 +351,7 @@ Runs diagnostic checks, looks up past ServiceNow tickets, and queries Gemini for
 ```json
 {
   "success": true,
-  "message": "Activity logs retrieved",
+  "message": "OK",
   "data": [
     {
       "id": 1,

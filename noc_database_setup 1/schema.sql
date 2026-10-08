@@ -14,7 +14,7 @@
 CREATE TABLE IF NOT EXISTS event_type_lookup (
     event_type_id   INTEGER PRIMARY KEY,
     event_type_name TEXT    NOT NULL,
-    severity        TEXT    CHECK(severity IN ('Critical','Warning','Info','Unknown')),
+    severity        TEXT    CHECK(severity IN ('P1','P2','P3','P4','Critical','Warning','Info','Unknown')),
     category        TEXT    CHECK(category IN ('connectivity','interface','performance','wireless','power','other'))
 );
 

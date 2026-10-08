@@ -8,15 +8,15 @@ This repository contains the FastAPI backend for the Network Operations Center (
 - **Network Event Diagnostics:** Interfaces to query large volumes of historical device events and logs.
 - **ServiceNow Ticket History Matching:** Matches a given event against historic ServiceNow tickets based on device ID, IPs, site codes, and names using multi-strategy confidence grading.
 - **Diagnostics Simulation Engine:** Configurable module (`FAKE_DIAGNOSTICS`) to simulate `ping`, `traceroute`, and `nslookup` (or run them via the system/remote API if enabled).
-- **Gemini LLM Integration:** Synthesizes diagnostic info and past tickets into an actionable hypothesis and step-by-step resolution plan using `gemini-1.5-flash`.
-- **Background Async Worker:** Ingests and normalizes large CSV/Excel ticket and event reports into the database without blocking the main event loop.
-- **Activity Logging:** Middleware captures user footprints and actions to an activity log table automatically.
+- **AI Suggestions:** Tries Gemini first, Groq (`openai/gpt-oss-20b`) as fallback, then built-in rule-based guidance.
+- **Background Async Worker:** Accepts CSV/XLS/XLSX event and ticket exports, auto-detects their headers, and reports import-job status.
+- **Activity Logging:** Middleware records user actions; frequent ingest-job status polls are excluded to avoid noisy writes during large imports.
 
 ## Requirements
 
 - Python 3.10+
 - SQLite (aiosqlite)
-- A Gemini API Key (Optional but required for LLM solutions. Will fallback to rule-based analysis if absent).
+- Gemini and/or Groq API keys are optional; rule-based guidance is used when both providers are unavailable.
 
 ## Setup & Installation
 
@@ -36,7 +36,7 @@ This repository contains the FastAPI backend for the Network Operations Center (
    Copy `.env.example` to `.env` and configure your settings:
    ```bash
    cp .env.example .env
-   # Edit .env and set GEMINI_API_KEY
+   # Set GEMINI_API_KEY and/or GROQ_API_KEY in .env
    ```
 
 4. **Run the Application**
@@ -51,20 +51,21 @@ Settings can be customized via the `.env` file (processed by `pydantic-settings`
 
 | Variable | Description | Default |
 | -------- | ----------- | ------- |
-| `DATABASE_URL` | SQLite connection string. | `sqlite:///./noc-automation2.db` |
+| `DATABASE_URL` | SQLite connection string. | Set in `backend/.env`; otherwise uses the project-local configured database |
 | `SECRET_KEY` | Key for signing JWTs. | `change-me-in-production...` |
 | `ALGORITHM` | JWT signing algorithm. | `HS256` |
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | Access Token lifetime. | `30` |
-| `GEMINI_API_KEY` | Google Gemini API key for the `/error-info` solution engine. | `""` |
+| `GEMINI_API_KEY` | Optional primary provider for `/error-info`. | Configure in `.env` |
+| `GROQ_API_KEY` | Optional fallback provider for `/error-info`. | Configure in `.env` |
 | `FAKE_DIAGNOSTICS` | If `True`, mocks `ping`, `traceroute`, and `nslookup`. | `True` |
 | `CORS_ORIGINS` | Allowed CORS origins. | `["*"]` |
 | `MAX_INGEST_FILE_SIZE_MB` | File size limit for CSV data ingestion. | `100` |
 
 ## Data Ingestion Worker
 
-The API provides an endpoint `/admin/ingest-excel` for administrators to upload new dumps of event logs or tickets (CSV/Excel format). This endpoint securely receives the payload and dispatches processing to an asyncio background worker inside `workers/ingest_worker.py`. 
+The API provides `/admin/ingest-excel` for administrators to upload event or ticket exports (`.csv`, `.xls`, or `.xlsx`). It auto-detects the file type from supported headers, returns `202 Accepted` with an ingest-job ID, and processes the upload in an asyncio task in `workers/ingest_worker.py`. The frontend polls `/admin/ingest-excel/{job_id}` until the job reaches `completed` or `failed`.
 
-To ingest data, authenticate as an admin, use the ingest endpoint, and track the state in the `ingest_jobs` table.
+The worker accepts both the repository's source export columns and normalized API columns. The task is in-process, not durable: an API restart can interrupt an active import. Large supplied event exports take around two minutes on the local development setup.
 
 ## API Documentation
 

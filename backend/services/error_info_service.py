@@ -120,15 +120,51 @@ async def build_error_info(
             event_id,
         )
 
-    # Step 6: LLM suggestion — pass saved_summary so it can be injected into prompt
-    logger.info("Generating LLM suggestion (saved_summary=%s)", saved_summary is not None)
-    suggestion = await generate_suggested_solution(
-        device=device,
-        event_type=event_type,
-        historical=historical,
-        diagnostics=diagnostics,
-        saved_summary=saved_summary,
-    )
+    # Step 6: Reuse a fresh summary before contacting either LLM provider.
+    if saved_summary:
+        suggestion = {
+            "hypothesis": saved_summary["hypothesis"],
+            "recommended_steps": saved_summary["recommended_steps"],
+            "confidence": saved_summary["confidence"],
+            "generated_by": saved_summary.get("generated_by", "saved-summary"),
+            "has_ticket_context": bool(historical.get("related_tickets")),
+            "used_saved_summary": True,
+        }
+    else:
+        logger.info("Generating LLM suggestion (saved_summary=False)")
+        suggestion = await generate_suggested_solution(
+            device=device,
+            event_type=event_type,
+            historical=historical,
+            diagnostics=diagnostics,
+        )
+
+    # Step 7: Persist successful AI responses to the cache so future requests are instant.
+    # Rule-based responses are always free to regenerate; skip caching them.
+    if not saved_summary and suggestion.get("generated_by") in ("gemini", "groq"):
+        try:
+            from services.solution_summary_service import upsert_summary  # noqa: PLC0415
+            ticket_numbers = [
+                t.get("ticket_number")
+                for t in historical.get("related_tickets", [])
+                if t.get("ticket_number")
+            ]
+            await upsert_summary(
+                conn,
+                event_id=event_id,
+                hypothesis=suggestion.get("hypothesis", ""),
+                recommended_steps=suggestion.get("recommended_steps", []),
+                confidence=suggestion.get("confidence", "medium"),
+                generated_by=suggestion["generated_by"],
+                source_tickets=ticket_numbers or None,
+            )
+            logger.info(
+                "Cached LLM result for event_id=%s (provider=%s)",
+                event_id,
+                suggestion["generated_by"],
+            )
+        except Exception as cache_exc:  # pragma: no cover
+            logger.warning("Failed to cache LLM result: %s", cache_exc)
 
     return {
         "device":             device,

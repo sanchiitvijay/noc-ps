@@ -15,7 +15,7 @@ The backend employs **JWT (JSON Web Tokens)**. With the exception of `/auth/logi
 Authorization: Bearer <your_access_token>
 ```
 
-A `401 Unauthorized` response indicates an expired or missing token. If so, prompt the user to re-authenticate (or build a silent refresh flow if you prefer to implement the refresh token logic).
+A `401 Unauthorized` response indicates an expired or missing access token. This API does not expose a refresh endpoint; prompt the user to sign in again.
 
 ---
 
@@ -74,28 +74,31 @@ You do **not** need to parse different error formats for different endpoints.
 
 Authenticates a user and returns an access and refresh token pair.
 
-**Request Form Data (not JSON):**
-Use `multipart/form-data` or `application/x-www-form-urlencoded`.
-- `username`: string
-- `password`: string
+**Request Body (JSON):**
+```json
+{"username": "admin", "password": "admin123"}
+```
 
 **Sample Curl:**
 ```bash
 curl -X POST "http://localhost:8000/auth/login" \
-  -H "Content-Type: application/x-www-form-urlencoded" \
-  -d "username=admin&password=admin123"
+  -H "Content-Type: application/json" \
+  -d '{"username":"admin","password":"admin123"}'
 ```
 
 **Response (200 OK):**
 ```json
 {
-  "access_token": "eyJhbGciOi...",
-  "refresh_token": "eyJhbGciOi...",
-  "token_type": "bearer",
-  "user": {
-    "id": 1,
-    "username": "admin",
-    "role": "admin"
+  "success": true,
+  "message": "Login successful",
+  "data": {
+    "user": {"id": 1, "username": "admin", "role": "admin"},
+    "tokens": {
+      "access_token": "eyJhbGciOi...",
+      "refresh_token": "eyJhbGciOi...",
+      "token_type": "bearer",
+      "expires_in": 1800
+    }
   }
 }
 ```
@@ -115,13 +118,13 @@ Creates a new user profile.
 }
 ```
 
-**Response (201 Created):** Same token structure as Login.
+**Response (201 Created):** A success envelope with `data.user` and `data.tokens`, matching the login response shape.
 
 ### 1.3 Logout
 **POST** `/auth/logout`
 
 *(Requires Bearer Token)*  
-Logs the user out and invalidates the current session token (added to blocklist).
+Accepts an optional JSON body `{"refresh_token":"<token>"}` and invalidates the supplied refresh token. The client should discard its access and refresh tokens after logout.
 
 ---
 
@@ -142,30 +145,16 @@ curl -X GET "http://localhost:8000/get-metrics" \
 **Response:**
 ```json
 {
-  "total_devices": 6583,
-  "total_events_all_time": 134385,
-  "events_by_severity": {
-    "P1": 412,
-    "P2": 19020,
-    "P3": 114953
-  },
-  "events_by_category": {
-    "connectivity": 240,
-    "interface": 1024,
-    "performance": 401,
-    "wireless": 204
-  },
-  "top_alerting_devices": [
-    {
-      "device_name": "SW-CORE-02",
-      "ip_address": "10.10.10.5",
-      "event_count": 524
-    }
-  ],
-  "ticket_stats": {
-    "total_tickets": 442,
-    "by_state": { "Pending": 120, "Closed": 300, "Active": 22 },
-    "by_type": { "INC": 300, "RITM": 142 }
+  "success": true,
+  "message": "OK",
+  "data": {
+    "time_window": "all",
+    "total_events": 134385,
+    "events_by_severity": {"P1": 412, "P2": 19020, "P3": 114953, "P4": 0},
+    "events_by_category": {"connectivity": 240, "interface": 1024, "performance": 401, "wireless": 204, "other": 0},
+    "top_alerting_devices": [{"device_name": "SW-CORE-02", "event_count": 524}],
+    "events_by_status": {"Up": 20, "Down": 30, "Unknown": 10},
+    "events_trend": [{"time": "2026-40", "count": 50}]
   }
 }
 ```
@@ -191,9 +180,8 @@ Retrieves paginated event logs.
 **Response:**
 ```json
 {
-  "total": 134385,
-  "page": 1,
-  "page_size": 50,
+  "success": true,
+  "message": "OK",
   "data": [
     {
       "event_id": 123236587,
@@ -204,7 +192,8 @@ Retrieves paginated event logs.
       "device_id": 42,
       "device_name": "SW-CORE-02"
     }
-  ]
+  ],
+  "meta": {"total": 134385, "page": 1, "page_size": 50, "total_pages": 2688}
 }
 ```
 
@@ -305,7 +294,7 @@ The core endpoint for the NOC Analyst dashboard. Returns a **single unified payl
 - **Historical tickets** — full ticket data from the master query (ticket fields + severity + frequency + device + event fields)
 - **Recent error logs** — raw `event_logs` entries for the device + event type
 - **Live diagnostics** — ping, traceroute (with hop list), DNS lookup
-- **AI-generated solution** — Gemini LLM analysis (or rule-based fallback)
+- **AI-generated solution** — Gemini, Groq fallback, or built-in rule-based guidance
 
 **Query Parameters:**
 - `event_id` (required, int) — The primary key of the event
@@ -429,12 +418,11 @@ curl -X GET "http://localhost:8000/error-info?event_id=123" \
 
 | Value | Meaning |
 |---|---|
-| `"gemini"` | Gemini LLM with historical ticket context |
-| `"no_ticket_llm"` | **Gemini LLM but no related tickets found** — frontend should display *"LLM gave this response"* |
-| `"rule-based"` | LLM unavailable — rule-based fallback used |
+| `"gemini"` | Gemini generated the suggestion |
+| `"groq"` | Groq generated the suggestion after Gemini was unavailable or failed |
+| `"rule-based"` | Both providers were unavailable or failed; built-in guidance was used |
 
-> When `generated_by` is `"no_ticket_llm"`, `historical_info.related_tickets` will be an empty array `[]`.  
-> `has_ticket_context: false` is the machine-readable equivalent for the frontend to branch on.
+`has_ticket_context` indicates whether related tickets were found. Successful Gemini/Groq suggestions are cached by `event_id` for two hours and returned directly on a fresh cache hit. Diagnostics still run on cache hits.
 
 ---
 
@@ -468,23 +456,47 @@ You can trigger manual diagnostic requests if you wish to run checks separately 
 ### 6.1 Ingest Excel/CSV
 **POST** `/admin/ingest-excel`
 
-Uploads a new data dump file (Events or Tickets CSV). Spawns a background thread that populates the respective database tables so the API does not hang.
+Uploads an event or ticket export. The API creates an ingest job and returns immediately; the in-process background task detects the file type, normalizes the supported source or canonical headers, and updates SQLite. Full-size repository exports have been exercised through this endpoint. A server restart can interrupt a running task because the queue is not durable.
 
 **Request (Multipart Form Data):**
-- `file`: The `.csv` or `.xlsx` file.
+- `file`: A `.csv`, `.xls`, or `.xlsx` file (up to `MAX_INGEST_FILE_SIZE_MB`).
 
 **Response (202 Accepted):**
 ```json
 {
-  "message": "File accepted for ingestion.",
-  "job_id": 1
+  "success": true,
+  "message": "File accepted. Job 1 is queued for processing.",
+  "data": {
+    "id": 1,
+    "filename": "events.csv",
+    "status": "pending",
+    "rows_processed": 0,
+    "error_message": null
+  }
 }
 ```
+
+Poll **GET** `/admin/ingest-excel/{job_id}` with the same admin token to read `status`, `rows_processed`, and `error_message` until the job is `completed` or `failed`. These status-poll requests are not added to the activity log; job transitions remain in `ingest_jobs`.
+
+The typed alternatives **POST** `/admin/ingest/error-csv` and **POST** `/admin/ingest/ticket-csv` are also available.
 
 ### 6.2 View Activity Logs
 **GET** `/admin/activity-log`
 
-Retrieves a paginated list of all actions performed by users (populated by the `ActivityLoggerMiddleware`).
+Retrieves paginated activity records populated by `ActivityLoggerMiddleware`. Frequent ingest-job status polls are intentionally omitted.
 
 **Query Parameters:**
-- `user_id`, `endpoint_path`, `page`, `page_size`
+- `page` (default `1`), `page_size` (default `50`, maximum `200`)
+
+---
+
+## 7. Saved Solution Summaries
+
+All summary endpoints require authentication. Analysts and admins may create, update, or delete summaries.
+
+- **GET** `/solution-summaries?event_id=123&limit=50&offset=0` lists summaries, optionally filtered by integer `event_id`.
+- **GET** `/solution-summaries/{event_id}` returns a summary only while it is within the two-hour freshness window; otherwise it returns 404.
+- **POST** `/solution-summaries` creates or updates a summary. Required JSON fields: `event_id`, `hypothesis`, `recommended_steps`. Optional fields: `confidence`, `generated_by`, `source_tickets`.
+- **DELETE** `/solution-summaries/{event_id}` deletes the summary, including an expired summary.
+
+Successful Gemini/Groq suggestions are cached by integer `event_id` for two hours. Cache hits skip the LLM call, but diagnostics still run. Rule-based suggestions are not cached.

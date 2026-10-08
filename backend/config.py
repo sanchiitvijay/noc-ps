@@ -7,6 +7,8 @@ Never hardcode secrets — always use this module.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -38,7 +40,7 @@ class Settings(BaseSettings):
     )
 
     # ── Database ──────────────────────────────────────────────────────────────
-    DATABASE_URL: str = "sqlite:////Users/sanchitvijay/working/noc-ps/noc_automation_4.db"
+    DATABASE_URL: str = f"sqlite:///{Path(__file__).resolve().parents[1] / 'noc_automation_4.db'}"
 
     # ── JWT / Auth ────────────────────────────────────────────────────────────
     SECRET_KEY: str = "change-me-in-production-use-a-long-random-string"
@@ -47,7 +49,7 @@ class Settings(BaseSettings):
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
 
     # ── LLM / Gemini ──────────────────────────────────────────────────────────
-    GEMINI_API_KEY: str = "AQ."
+    GEMINI_API_KEY: str = ""
     # GEMINI_API_KEY: str = ""
 
     # ── LLM / Groq fallback ───────────────────────────────────────────────────

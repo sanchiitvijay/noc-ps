@@ -155,9 +155,13 @@ async def delete_summary(conn, event_id: int) -> bool:
     Returns:
         ``True`` if a row was deleted, ``False`` if not found.
     """
-    # Check existence first to return meaningful bool
-    existing = await get_summary(conn, event_id)
-    if not existing:
+    # Query directly (no freshness filter) so stale summaries can be deleted too.
+    row = await fetch_one(
+        conn,
+        "SELECT event_id FROM ticket_solution_summaries WHERE event_id = ?",
+        (event_id,),
+    )
+    if not row:
         return False
     await execute_write(
         conn,

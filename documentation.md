@@ -102,7 +102,7 @@ Recommendations are advisory. The analyst remains responsible for validation and
 
 ### Administration
 
-Administrators can view API activity records and submit CSV files for background ingestion. The frontend/backend upload paths are currently misaligned and need to be corrected before relying on the upload screen for a live pilot.
+Administrators can view API activity records and submit CSV files for background ingestion. The admin screen uploads through `/admin/ingest-excel`, polls the returned job until it completes, and supports the repository's event and ticket export headers. Typed CSV routes remain available for integrations. Large uploads are processed in the API process and can take around two minutes for the supplied event export; a restart can still interrupt a job. Ingest-job status polls are excluded from the activity log to avoid noisy writes during imports; job state remains available from the ingest-job endpoint.
 
 ### Offline demo
 
@@ -179,7 +179,7 @@ flowchart TD
 | Incremental update | Merge new event and ticket CSV files | `incremental_updater.py` |
 | API upload | Accept an administrator CSV upload and create an ingest job | `backend/workers/ingest_worker.py` |
 
-The paths do not share exactly the same normalization logic. A team should select one controlled refresh path per environment and validate the resulting database.
+The paths do not share exactly the same normalization logic. The API upload path has been tested with the supplied full-size event and ticket exports, while the standalone updater is the preferred controlled refresh path for bulk updates. Validate the resulting database before using it operationally.
 
 ## Operational flows
 
@@ -255,7 +255,7 @@ The recommendation is a hypothesis and action guide, not a verified root cause o
 - Groq is attempted when Gemini is unavailable and `GROQ_API_KEY` is configured.
 - Rule-based guidance is used when external providers are unavailable.
 - The prompt uses compact device, event, diagnostic, and ticket context; it is not a full ticket export.
-- Saved summaries are temporary reference context when updated within the previous two hours.
+- Successful Gemini/Groq suggestions are saved per event and returned directly for two hours; rule-based fallbacks are not cached.
 
 AI output should be reviewed by an analyst before it is copied into a ServiceNow record or used to justify a change.
 
@@ -288,7 +288,7 @@ The repository still contains development defaults for the token-signing secret 
 | `SECRET_KEY` | Development placeholder | Generate and protect a deployment secret |
 | `ADMIN_PASSWORD` | `admin123` | Replace before shared use |
 | `FAKE_DIAGNOSTICS` | `True` | Keep for demos; disable only when real checks are approved |
-| `DEV_LOG_ENABLED` | `True` | Disable or control before production |
+| `DEV_LOG_ENABLED` | `False` | Keep disabled unless development request/SQL logging is needed |
 | `CORS_ORIGINS` | Declared as permissive, while `main.py` has its own allowlist | Align configuration and runtime behavior |
 
 ## Readiness assessment
@@ -312,12 +312,10 @@ The repository still contains development defaults for the token-signing secret 
 
 | Priority | Gap | Why it matters |
 |---:|---|---|
-| 1 | Fix frontend/backend upload contract | Current admin upload flow is not aligned |
+| 1 | Replace in-process ingestion | Prevents lost work during API restarts |
 | 2 | Preserve full event timestamps | Required for trustworthy trends and event/ticket correlation |
-| 3 | Replace in-process ingestion | Prevents lost work during API restarts |
-| 4 | Remove development secrets and logging defaults | Required before shared access |
-| 5 | Label simulated diagnostics clearly | Prevents demo results being mistaken for live evidence |
-| 6 | Add backend contract and integration tests | Protects the frontend/backend boundary |
+| 3 | Remove development secrets and logging defaults | Required before shared access |
+| 4 | Label simulated diagnostics clearly | Prevents demo results being mistaken for live evidence |
 
 ## Local operation
 
@@ -342,6 +340,17 @@ npm run dev
 The backend provides interactive API documentation at `/docs` and `/redoc`.
 
 For database rebuilds and validation, use the scripts and SQL files under `noc_database_setup 1/`. For incremental CSV updates, use `incremental_updater.py`.
+
+The updater defaults to the SQLite path in the backend configuration and can be pointed at a staging copy with `--db`. Run it from the repository root after creating that copy:
+
+```bash
+backend/.venv/bin/python incremental_updater.py \
+    --events "30_Days_EventTypeName_device_name_ANONYMIZED.csv" \
+    --tickets "SN_Tickets_NOC_anonymized.csv" \
+    --db /path/to/staging-copy.db
+```
+
+The event export contains time-of-day only; the updater preserves that value and does not invent calendar dates. Review the staging database before selecting the configured live database as the target.
 
 ## Verification checklist
 

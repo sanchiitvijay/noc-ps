@@ -36,7 +36,7 @@ router = APIRouter(tags=["Error Info"])
 
 @router.get(
     "/error-info",
-    summary="Get full error analysis panel for a device + event type",
+    summary="Get full error analysis panel for an event",
     responses={
         200: {
             "description": (
@@ -46,35 +46,28 @@ router = APIRouter(tags=["Error Info"])
         },
         400: {"description": "Missing required query parameters"},
         401: {"description": "Authentication required"},
-        404: {"description": "Device or event type not found"},
+        404: {"description": "Event, device, or event type not found"},
         500: {"description": "Internal server error during analysis"},
     },
 )
 async def get_error_info(
     current_user: Annotated[dict, Depends(get_current_user)],
     conn: AsyncConnection = Depends(get_connection),
-    device_id: int | None = Query(
+    event_id: int | None = Query(
         default=None,
-        description="Device primary key (preferred over device_name)",
-    ),
-    device_name: str | None = Query(
-        default=None,
-        description="Device name (partial match). Used if device_id not provided.",
-    ),
-    event_type_id: int | None = Query(
-        default=None,
-        description="Event type primary key (required)",
+        description="Event primary key (required)",
     ),
 ) -> JSONResponse:
-    """Return the full error analysis panel for a device + event type.
+    """Return the full error analysis panel for an event.
 
     This endpoint orchestrates:
-    1. Device and event type metadata lookup
-    2. Historical ticket retrieval via the master query (full ticket + device + event data)
-    3. Recent raw event logs (error log entries for this device + event type)
-    4. Live ping/traceroute/nslookup diagnostics
-    5. Saved solution summary lookup (ticket_solution_summaries table — fast path)
-    6. LLM-generated hypothesis and recommended steps (Gemini → Groq → rule-based)
+    1. Event log lookup to get device and event type
+    2. Device and event type metadata lookup
+    3. Historical ticket retrieval via the master query (full ticket + device + event data)
+    4. Recent raw event logs (error log entries for this device + event type)
+    5. Live ping/traceroute/nslookup diagnostics
+    6. Saved solution summary lookup (ticket_solution_summaries table — fast path)
+    7. LLM-generated hypothesis and recommended steps (Gemini → Groq → rule-based)
 
     **Suggested solution priority:**
     If a saved summary exists in the DB it is injected as context into the LLM
@@ -85,15 +78,10 @@ async def get_error_info(
     ``suggested_solution.generated_by`` will be ``"no_ticket_llm"`` to signal
     the frontend to display "LLM gave this response" instead of referencing tickets.
 
-    At least one of ``device_id`` or ``device_name`` must be provided,
-    along with ``event_type_id``.
-
     Args:
         current_user: Authenticated user (any role).
         conn: Injected database connection.
-        device_id: Device primary key.
-        device_name: Partial device name match.
-        event_type_id: Event type primary key.
+        event_id: Event primary key.
 
     Returns:
         200 response with full analysis data:
@@ -105,24 +93,15 @@ async def get_error_info(
 
     Raises:
         400: If required parameters are missing.
-        404: If the device or event type cannot be found.
+        404: If the event cannot be found.
         500: On unexpected internal errors.
     """
-    if device_id is None and device_name is None:
+    if event_id is None:
         return JSONResponse(
             status_code=400,
             content={
                 "success": False,
-                "message": "Provide at least one of: device_id, device_name",
-                "data": None,
-            },
-        )
-    if event_type_id is None:
-        return JSONResponse(
-            status_code=400,
-            content={
-                "success": False,
-                "message": "event_type_id is required",
+                "message": "event_id is required",
                 "data": None,
             },
         )
@@ -130,9 +109,7 @@ async def get_error_info(
     try:
         data = await build_error_info(
             conn,
-            device_id=device_id,
-            device_name=device_name,
-            event_type_id=event_type_id,
+            event_id=event_id,
         )
         return JSONResponse(
             status_code=200,

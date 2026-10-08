@@ -2,7 +2,7 @@
 Solution summaries router — /solution-summaries.
 
 Endpoints for manually reading, writing, and deleting cached LLM solution
-summaries per event type.
+summaries per event.
 """
 
 from __future__ import annotations
@@ -45,7 +45,7 @@ router = APIRouter(prefix="/solution-summaries", tags=["Solution Summaries"])
 )
 async def list_solution_summaries(
     current_user: Annotated[dict, Depends(get_current_user)],
-    event_type_id: int | None = Query(None, description="Filter by event type"),
+    event_id: int | None = Query(None, description="Filter by event"),
     limit: int = Query(50, ge=1, le=100),
     offset: int = Query(0, ge=0),
     conn: AsyncConnection = Depends(get_connection),
@@ -53,7 +53,7 @@ async def list_solution_summaries(
     try:
         summaries = await list_summaries(
             conn,
-            event_type_id=event_type_id,
+            event_id=event_id,
             limit=limit,
             offset=offset,
         )
@@ -67,31 +67,31 @@ async def list_solution_summaries(
 
 
 # ---------------------------------------------------------------------------
-# GET /solution-summaries/{event_type_id}
+# GET /solution-summaries/{event_id}
 # ---------------------------------------------------------------------------
 
 
 @router.get(
-    "/{event_type_id}",
-    summary="Get a saved solution summary for an event type",
+    "/{event_id}",
+    summary="Get a saved solution summary for an event",
     responses={
         200: {"description": "Solution summary found"},
         401: {"description": "Authentication required"},
-        404: {"description": "No summary found for this event type"},
+        404: {"description": "No summary found for this event"},
         500: {"description": "Internal server error"},
     },
 )
 async def get_solution_summary(
-    event_type_id: int,
+    event_id: int,
     current_user: Annotated[dict, Depends(get_current_user)],
     conn: AsyncConnection = Depends(get_connection),
 ) -> JSONResponse:
     try:
-        summary = await get_summary(conn, event_type_id)
+        summary = await get_summary(conn, event_id)
         if not summary:
             raise NotFoundError(
                 "SolutionSummary",
-                f"event_type_id={event_type_id}",
+                f"event_id={event_id}",
             )
         return JSONResponse(
             status_code=200,
@@ -111,7 +111,7 @@ async def get_solution_summary(
 
 @router.post(
     "",
-    summary="Create or update a solution summary for an event type",
+    summary="Create or update a solution summary for an event",
     responses={
         200: {"description": "Summary upserted successfully"},
         400: {"description": "Invalid input data"},
@@ -125,13 +125,13 @@ async def create_or_update_solution_summary(
     current_user: Annotated[dict, Depends(require_analyst_or_admin)],
     conn: AsyncConnection = Depends(get_connection),
 ) -> JSONResponse:
-    event_type_id = body.get("event_type_id")
+    event_id = body.get("event_id")
     hypothesis = body.get("hypothesis")
     recommended_steps = body.get("recommended_steps")
 
     missing = [
         f for f, v in [
-            ("event_type_id", event_type_id),
+            ("event_id", event_id),
             ("hypothesis", hypothesis),
             ("recommended_steps", recommended_steps),
         ] if v is None
@@ -170,14 +170,14 @@ async def create_or_update_solution_summary(
     try:
         await upsert_summary(
             conn,
-            event_type_id=int(event_type_id),
+            event_id=int(event_id),
             hypothesis=str(hypothesis),
             recommended_steps=recommended_steps,
             confidence=confidence,
             generated_by=body.get("generated_by", "analyst"),
             source_tickets=body.get("source_tickets"),
         )
-        saved = await get_summary(conn, int(event_type_id))
+        saved = await get_summary(conn, int(event_id))
         return JSONResponse(
             status_code=200,
             content={"success": True, "message": "Solution summary saved", "data": saved},
@@ -188,12 +188,12 @@ async def create_or_update_solution_summary(
 
 
 # ---------------------------------------------------------------------------
-# DELETE /solution-summaries/{event_type_id}
+# DELETE /solution-summaries/{event_id}
 # ---------------------------------------------------------------------------
 
 
 @router.delete(
-    "/{event_type_id}",
+    "/{event_id}",
     summary="Delete a saved solution summary",
     responses={
         200: {"description": "Summary deleted"},
@@ -204,16 +204,16 @@ async def create_or_update_solution_summary(
     },
 )
 async def delete_solution_summary(
-    event_type_id: int,
+    event_id: int,
     current_user: Annotated[dict, Depends(require_analyst_or_admin)],
     conn: AsyncConnection = Depends(get_connection),
 ) -> JSONResponse:
     try:
-        deleted = await delete_summary(conn, event_type_id)
+        deleted = await delete_summary(conn, event_id)
         if not deleted:
             raise NotFoundError(
                 "SolutionSummary",
-                f"event_type_id={event_type_id}",
+                f"event_id={event_id}",
             )
         return JSONResponse(
             status_code=200,

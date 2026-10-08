@@ -77,7 +77,7 @@ async def _get_random_real_logs(conn, count: int) -> list[dict]:
             d.ip_address,
             el.current_status,
             el.raw_detail
-        FROM event_logs el
+        FROM (SELECT * FROM event_logs ORDER BY event_time DESC LIMIT 500) el
         LEFT JOIN devices d              ON el.device_id     = d.device_id
         LEFT JOIN event_type_lookup etl  ON el.event_type_id = etl.event_type_id
         ORDER BY RANDOM()

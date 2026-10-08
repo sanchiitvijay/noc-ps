@@ -308,15 +308,11 @@ The core endpoint for the NOC Analyst dashboard. Returns a **single unified payl
 - **AI-generated solution** — Gemini LLM analysis (or rule-based fallback)
 
 **Query Parameters:**
-- `device_id` (optional, int) — preferred
-- `device_name` (optional, str) — partial LIKE match, used if `device_id` not provided
-- `event_type_id` (required, int)
-
-> **At least one of** `device_id` **or** `device_name` **must be provided.**
+- `event_id` (required, int) — The primary key of the event
 
 **Sample Curl:**
 ```bash
-curl -X GET "http://localhost:8000/error-info?device_id=42&event_type_id=1" \
+curl -X GET "http://localhost:8000/error-info?event_id=123" \
   -H "Authorization: Bearer YOUR_TOKEN"
 ```
 

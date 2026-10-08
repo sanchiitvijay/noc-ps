@@ -49,25 +49,22 @@ async def get_event_type(
 
 async def build_error_info(
     conn,
-    device_id: int | None = None,
-    device_name: str | None = None,
-    event_type_id: int | None = None,
+    event_id: int,
 ) -> dict:
     """Orchestrate all sub-services and build the full error-info payload.
 
     Steps:
-        1. Resolve the device (by id or name).
-        2. Resolve the event type.
-        3. Fetch historical ticket + event log info via the master query.
-        4. Run ping/traceroute/nslookup diagnostics on the device IP.
-        5. Check ticket_solution_summaries for a cached solution.
-        6. If no cache hit, generate a solution via LLM (Gemini → Groq → rule-based).
+        1. Resolve the event log from event_id to get device_id and event_type_id.
+        2. Resolve the device.
+        3. Resolve the event type.
+        4. Fetch historical ticket + event log info via the master query.
+        5. Run ping/traceroute/nslookup diagnostics on the device IP.
+        6. Check ticket_solution_summaries for a cached solution.
+        7. If no cache hit, generate a solution via LLM (Gemini → Groq → rule-based).
 
     Args:
         conn: Active database connection.
-        device_id: Device primary key (preferred).
-        device_name: Device name (used if device_id not provided).
-        event_type_id: Event type primary key.
+        event_id: Event primary key.
 
     Returns:
         Full error-info data dict compatible with the ``ErrorInfoData`` schema.
@@ -75,18 +72,28 @@ async def build_error_info(
         so the frontend can show "Resolved from saved summary" when applicable.
 
     Raises:
-        NotFoundError: If the device or event type cannot be resolved.
-        ValueError: If neither device_id/device_name nor event_type_id is provided.
+        NotFoundError: If the event, device or event type cannot be resolved.
+        ValueError: If event_id is not provided.
     """
-    if device_id is None and device_name is None:
-        raise ValueError("Provide at least one of: device_id, device_name")
-    if event_type_id is None:
-        raise ValueError("event_type_id is required")
+    if event_id is None:
+        raise ValueError("event_id is required")
+
+    # Step 0: Resolve event from event_logs to get device_id and event_type_id
+    event_row = await fetch_one(
+        conn,
+        "SELECT device_id, event_type_id FROM event_logs WHERE event_id = ?",
+        (event_id,)
+    )
+    if not event_row:
+        raise NotFoundError("EventLog", str(event_id))
+        
+    device_id = event_row["device_id"]
+    event_type_id = event_row["event_type_id"]
 
     # Step 1: Resolve device
-    device = await get_device_info(conn, device_id=device_id, device_name=device_name)
+    device = await get_device_info(conn, device_id=device_id)
     if not device:
-        identifier = str(device_id or device_name)
+        identifier = str(device_id)
         raise NotFoundError("Device", identifier)
 
     # Step 2: Resolve event type
@@ -106,11 +113,11 @@ async def build_error_info(
     diagnostics = await run_all_diagnostics(target_host)
 
     # Step 5: Check saved solution summary cache (fast path)
-    saved_summary = await get_summary(conn, event_type_id)
+    saved_summary = await get_summary(conn, event_id)
     if saved_summary:
         logger.info(
-            "Found saved solution summary for event_type_id=%s",
-            event_type_id,
+            "Found saved solution summary for event_id=%s",
+            event_id,
         )
 
     # Step 6: LLM suggestion — pass saved_summary so it can be injected into prompt

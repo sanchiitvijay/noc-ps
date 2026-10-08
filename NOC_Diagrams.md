@@ -15,7 +15,7 @@ sequenceDiagram
     participant LLM as Gemini API
 
     Analyst->>UI: Click on Network Alert
-    UI->>API: GET /error-info (device_id, event_id)
+    UI->>API: GET /error-info (event_id)
     
     rect rgb(30, 30, 30)
     Note over API,DB: Data Gathering

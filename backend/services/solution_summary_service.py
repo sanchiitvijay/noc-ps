@@ -1,9 +1,9 @@
 """
 Solution summary service — CRUD for the ticket_solution_summaries table.
 
-This table caches pre-computed LLM solution summaries per event_type.
+This table caches pre-computed LLM solution summaries per event_id.
 The /error-info flow checks this table FIRST before calling any LLM, so
-repeated queries for the same event_type return instantly and save
+repeated queries for the same event_id return instantly and save
 API tokens.
 
 CRUD endpoints are exposed under /solution-summaries (auth required).
@@ -27,14 +27,14 @@ logger = logging.getLogger(__name__)
 
 async def get_summary(
     conn,
-    event_type_id: int,
+    event_id: int,
 ) -> dict | None:
-    """Fetch the saved solution summary for an event type pair.
+    """Fetch the saved solution summary for an event.
     Only returns the summary if it is newer than 2 hours.
 
     Args:
         conn: Active database connection.
-        event_type_id: Event type primary key.
+        event_id: Event primary key.
 
     Returns:
         Summary dict (with ``recommended_steps`` as a Python list) or ``None``.
@@ -43,9 +43,9 @@ async def get_summary(
         conn,
         """
         SELECT * FROM ticket_solution_summaries
-        WHERE event_type_id = ? AND updated_at >= datetime('now', '-2 hours')
+        WHERE event_id = ? AND updated_at >= datetime('now', '-2 hours')
         """,
-        (event_type_id,),
+        (event_id,),
     )
     if not row:
         return None
@@ -54,7 +54,7 @@ async def get_summary(
 
 async def list_summaries(
     conn,
-    event_type_id: int | None = None,
+    event_id: int | None = None,
     limit: int = 50,
     offset: int = 0,
 ) -> list[dict]:
@@ -62,7 +62,7 @@ async def list_summaries(
 
     Args:
         conn: Active database connection.
-        event_type_id: Optional filter by event type.
+        event_id: Optional filter by event.
         limit: Max rows.
         offset: Pagination offset.
 
@@ -71,9 +71,9 @@ async def list_summaries(
     """
     conditions: list[str] = []
     params: list = []
-    if event_type_id is not None:
-        conditions.append("event_type_id = ?")
-        params.append(event_type_id)
+    if event_id is not None:
+        conditions.append("event_id = ?")
+        params.append(event_id)
 
     where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
     params.extend([limit, offset])
@@ -98,21 +98,21 @@ async def list_summaries(
 
 async def upsert_summary(
     conn,
-    event_type_id: int,
+    event_id: int,
     hypothesis: str,
     recommended_steps: list[str],
     confidence: str = "medium",
     generated_by: str = "rule-based",
     source_tickets: list[str] | None = None,
 ) -> int:
-    """Insert or replace a solution summary for an event_type pair.
+    """Insert or replace a solution summary for an event.
 
     Uses SQLite's ``INSERT OR REPLACE`` so callers don't need to check
     existence first.
 
     Args:
         conn: Active database connection.
-        event_type_id: Event type primary key.
+        event_id: Event primary key.
         hypothesis: Root cause hypothesis text.
         recommended_steps: Ordered list of remediation steps.
         confidence: ``"high"``, ``"medium"``, or ``"low"``.
@@ -129,10 +129,10 @@ async def upsert_summary(
         conn,
         """
         INSERT INTO ticket_solution_summaries
-            (event_type_id, hypothesis, recommended_steps,
+            (event_id, hypothesis, recommended_steps,
              confidence, generated_by, source_tickets, updated_at)
         VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-        ON CONFLICT(event_type_id) DO UPDATE SET
+        ON CONFLICT(event_id) DO UPDATE SET
             hypothesis        = excluded.hypothesis,
             recommended_steps = excluded.recommended_steps,
             confidence        = excluded.confidence,
@@ -140,29 +140,29 @@ async def upsert_summary(
             source_tickets    = excluded.source_tickets,
             updated_at        = CURRENT_TIMESTAMP
         """,
-        (event_type_id, hypothesis, steps_json,
+        (event_id, hypothesis, steps_json,
          confidence, generated_by, tickets_json),
     )
 
 
-async def delete_summary(conn, event_type_id: int) -> bool:
-    """Delete the solution summary for an event_type pair.
+async def delete_summary(conn, event_id: int) -> bool:
+    """Delete the solution summary for an event.
 
     Args:
         conn: Active database connection.
-        event_type_id: Event type primary key.
+        event_id: Event primary key.
 
     Returns:
         ``True`` if a row was deleted, ``False`` if not found.
     """
     # Check existence first to return meaningful bool
-    existing = await get_summary(conn, event_type_id)
+    existing = await get_summary(conn, event_id)
     if not existing:
         return False
     await execute_write(
         conn,
-        "DELETE FROM ticket_solution_summaries WHERE event_type_id = ?",
-        (event_type_id,),
+        "DELETE FROM ticket_solution_summaries WHERE event_id = ?",
+        (event_id,),
     )
     return True
 

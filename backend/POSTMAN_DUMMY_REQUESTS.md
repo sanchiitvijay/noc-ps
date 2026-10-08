@@ -192,7 +192,7 @@ Returns randomly sampled real event logs interleaved with synthetic event logs f
 ### 2.4 Automated Error Analysis Panel (LLM Powered)
 Runs diagnostic checks, looks up past ServiceNow tickets, and queries Gemini for a solution.
 - **Method:** `GET`
-- **URL:** `http://localhost:8000/error-info?device_id=2&event_type_id=1`
+- **URL:** `http://localhost:8000/error-info?event_id=1`
 - **Headers:** `Authorization: Bearer <your_token>`
 - **Expected Response (200 OK):**
 ```json

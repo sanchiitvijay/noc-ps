@@ -10,4 +10,4 @@ backend/log.txt
 __pycache__
 services/__pycache__
 
-/frontend
+/node_modules

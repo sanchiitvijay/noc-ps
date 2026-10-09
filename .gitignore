@@ -4,3 +4,10 @@ venv
 log.txt
 *.log
 backend/log.txt
+.venv
+/.venv
+.pytest_cache
+__pycache__
+services/__pycache__
+
+/frontend

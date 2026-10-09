@@ -8,7 +8,7 @@ and an LLM-generated remediation suggestion.
 Lookup priority for suggested_solution:
   1. ticket_solution_summaries table (instant cache)
   2. Gemini LLM
-  3. Groq LLM (moonshotai/kimi-k2-instruct ~120B OSS)
+    3. Groq LLM (openai/gpt-oss-20b)
   4. Rule-based fallback
 
 When no historical tickets exist for the device, the LLM still produces

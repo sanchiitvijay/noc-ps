@@ -68,6 +68,7 @@ async def _get_random_real_logs(conn, count: int) -> list[dict]:
         SELECT
             el.event_id,
             el.event_time,
+            el.event_type_id,
             el.event_type_name,
             etl.severity,
             etl.category,
@@ -78,8 +79,8 @@ async def _get_random_real_logs(conn, count: int) -> list[dict]:
             el.current_status,
             el.raw_detail
         FROM (SELECT * FROM event_logs ORDER BY event_time DESC LIMIT 500) el
-        LEFT JOIN devices d              ON el.device_id     = d.device_id
-        LEFT JOIN event_type_lookup etl  ON el.event_type_id = etl.event_type_id
+        JOIN devices d              ON el.device_id     = d.device_id
+        JOIN event_type_lookup etl  ON el.event_type_id = etl.event_type_id
         ORDER BY RANDOM()
         LIMIT ?
         """,
@@ -97,10 +98,18 @@ def _make_synthetic_log(idx: int) -> dict:
     Returns:
         Synthetic log dict.
     """
+    ev_type = random.choice(["Node Down", "Interface Down", "High CPU", "Node Up"])
+    ev_type_id_map = {
+        "Node Down": 1,
+        "Node Up": 5,
+        "Interface Down": 10,
+        "High CPU": 529,
+    }
     return {
         "event_id":       900_000 + idx,
         "event_time":     f"14:{idx % 60:02d}:{random.randint(0, 59):02d}.000",
-        "event_type_name": random.choice(["Node Down", "Interface Down", "High CPU", "Node Up"]),
+        "event_type_id":  ev_type_id_map.get(ev_type, 1),
+        "event_type_name": ev_type,
         "severity":       random.choice(_SEVERITIES),
         "category":       random.choice(_CATEGORIES),
         "message":        random.choice(_SYNTHETIC_MESSAGES),

@@ -96,8 +96,12 @@ class ActivityLoggerMiddleware(BaseHTTPMiddleware):
         """
         path = request.url.path
 
-        # Skip documentation and health check paths
-        if path in _SKIP_PATHS or path.startswith("/static"):
+        # Skip noisy ingest-job polling; the job row already records its lifecycle.
+        if (
+            path in _SKIP_PATHS
+            or path.startswith("/static")
+            or (request.method == "GET" and path.startswith("/admin/ingest-excel/"))
+        ):
             return await call_next(request)
 
         # Read and store the request body so it can be consumed multiple times

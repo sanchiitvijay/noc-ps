@@ -15,6 +15,7 @@ import json
 import logging
 from datetime import datetime, timezone
 
+from config import settings
 from database.connection import execute_write, fetch_all, fetch_one
 
 logger = logging.getLogger(__name__)
@@ -30,7 +31,7 @@ async def get_summary(
     event_id: int,
 ) -> dict | None:
     """Fetch the saved solution summary for an event.
-    Only returns the summary if it is newer than 2 hours.
+    Only returns the summary if it is within the configured cache TTL.
 
     Args:
         conn: Active database connection.
@@ -43,9 +44,9 @@ async def get_summary(
         conn,
         """
         SELECT * FROM ticket_solution_summaries
-        WHERE event_id = ? AND updated_at >= datetime('now', '-2 hours')
+        WHERE event_id = ? AND updated_at >= datetime('now', ?)
         """,
-        (event_id,),
+        (event_id, f"-{settings.SOLUTION_SUMMARY_CACHE_TTL_MINUTES} minutes"),
     )
     if not row:
         return None
@@ -155,9 +156,13 @@ async def delete_summary(conn, event_id: int) -> bool:
     Returns:
         ``True`` if a row was deleted, ``False`` if not found.
     """
-    # Check existence first to return meaningful bool
-    existing = await get_summary(conn, event_id)
-    if not existing:
+    # Query directly (no freshness filter) so stale summaries can be deleted too.
+    row = await fetch_one(
+        conn,
+        "SELECT event_id FROM ticket_solution_summaries WHERE event_id = ?",
+        (event_id,),
+    )
+    if not row:
         return False
     await execute_write(
         conn,

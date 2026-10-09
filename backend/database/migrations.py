@@ -103,7 +103,7 @@ CREATE TABLE IF NOT EXISTS ticket_solution_summaries (
 """
 
 CREATE_TSS_IDX = """
-CREATE INDEX IF NOT EXISTS idx_tss_event
+CREATE UNIQUE INDEX IF NOT EXISTS uq_tss_event
 ON ticket_solution_summaries(event_id);
 """
 
@@ -138,9 +138,61 @@ ALL_MIGRATIONS: list[tuple[str, str]] = [
     ("ingest_jobs status index", CREATE_INGEST_JOBS_IDX),
     ("token_blocklist table", CREATE_TOKEN_BLOCKLIST_TABLE),
     ("token_blocklist jti index", CREATE_TOKEN_BLOCKLIST_IDX),
-    ("ticket_solution_summaries table", CREATE_TICKET_SOLUTION_SUMMARIES_TABLE),
-    ("ticket_solution_summaries index", CREATE_TSS_IDX),
 ]
+
+
+def _migrate_ticket_solution_summaries(conn: sqlite3.Connection) -> None:
+    """Upgrade event-type summaries while preserving the original table."""
+    table = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?",
+        ("ticket_solution_summaries",),
+    ).fetchone()
+    if not table:
+        conn.execute(CREATE_TICKET_SOLUTION_SUMMARIES_TABLE)
+    else:
+        columns = {
+            row[1]
+            for row in conn.execute("PRAGMA table_info(ticket_solution_summaries)")
+        }
+        if "event_id" not in columns:
+            if "event_type_id" not in columns:
+                raise RuntimeError(
+                    "ticket_solution_summaries has an unsupported schema"
+                )
+
+            legacy_name = "ticket_solution_summaries_legacy"
+            suffix = 1
+            while conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?",
+                (legacy_name,),
+            ).fetchone():
+                suffix += 1
+                legacy_name = f"ticket_solution_summaries_legacy_{suffix}"
+
+            conn.execute(
+                f"ALTER TABLE ticket_solution_summaries RENAME TO {legacy_name}"
+            )
+            conn.execute(CREATE_TICKET_SOLUTION_SUMMARIES_TABLE)
+            conn.execute(
+                f"""
+                INSERT INTO ticket_solution_summaries
+                    (event_id, hypothesis, recommended_steps, confidence,
+                     generated_by, source_tickets, created_at, updated_at)
+                SELECT (
+                    SELECT MIN(event_id) FROM event_logs
+                    WHERE event_type_id = legacy.event_type_id
+                ), legacy.hypothesis, legacy.recommended_steps,
+                   legacy.confidence, legacy.generated_by, legacy.source_tickets,
+                   legacy.created_at, legacy.updated_at
+                FROM {legacy_name} AS legacy
+                WHERE EXISTS (
+                    SELECT 1 FROM event_logs
+                    WHERE event_type_id = legacy.event_type_id
+                )
+                """
+            )
+
+    conn.execute(CREATE_TSS_IDX)
 
 
 async def run_migrations() -> None:
@@ -162,6 +214,13 @@ async def run_migrations() -> None:
                 conn.close()
                 logger.error("Migration FAILED [%s]: %s", name, exc)
                 raise
+        try:
+            _migrate_ticket_solution_summaries(conn)
+            logger.debug("Migration OK: ticket_solution_summaries event key")
+        except Exception as exc:
+            conn.close()
+            logger.error("Migration FAILED [ticket_solution_summaries]: %s", exc)
+            raise
         conn.commit()
         conn.close()
 

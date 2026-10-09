@@ -91,7 +91,7 @@ async def _handle_ingest(
     conn: aiosqlite.Connection,
     file_type: str,
 ) -> JSONResponse:
-    allowed_extensions = {".csv"}
+    allowed_extensions = {".csv", ".xlsx", ".xls"}
     filename = file.filename or "upload"
     ext = "." + filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
     if ext not in allowed_extensions:
@@ -167,6 +167,28 @@ async def ingest_ticket_csv(
     file: UploadFile = ...,
 ) -> JSONResponse:
     return await _handle_ingest(file, current_user, conn, "ticket")
+
+
+@router.post(
+    "/ingest-excel",
+    status_code=status.HTTP_202_ACCEPTED,
+    summary=(
+        "Upload a CSV (or Excel) for background ingestion — auto-detects event or ticket data (admin only). "
+        "This is the primary endpoint called by the frontend."
+    ),
+)
+async def ingest_excel(
+    current_user: Annotated[dict, Depends(require_admin)],
+    conn: aiosqlite.Connection = Depends(get_connection),
+    file: UploadFile = ...,
+) -> JSONResponse:
+    """Auto-detect whether the uploaded file is an event log or ticket CSV
+    and dispatch to the appropriate handler.
+
+    The file type is determined by column names inside the file, so the caller
+    does not need to choose between /ingest/error-csv and /ingest/ticket-csv.
+    """
+    return await _handle_ingest(file, current_user, conn, "auto")
 
 
 @router.get(

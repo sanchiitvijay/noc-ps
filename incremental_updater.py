@@ -14,8 +14,7 @@ import json
 import os
 import argparse
 from pathlib import Path
-import random
-from datetime import datetime, timedelta
+import sys
 
 # ============================================================================
 # HELPER FUNCTIONS
@@ -41,34 +40,11 @@ def extract_site_name(device_name: str) -> str | None:
 
 
 def clean_event_time(raw_time: str) -> str | None:
-    """
-    Convert:
-    '[DEVICE_ID] 20:00:04.470'
-    to:
-    '2026-06-28 20:00:04.470'
-
-    Date is randomly generated between 2026-06-16 and 2026-07-16.
-    """
+    """Strip the device marker while preserving the source time-of-day value."""
     if pd.isna(raw_time):
         return None
-
-    text = str(raw_time)
-
-    # Extract time portion (HH:MM:SS.mmm)
-    match = re.search(r'(\d{2}:\d{2}:\d{2}\.\d{3})', text)
-    if not match:
-        return None
-
-    time_part = match.group(1)
-
-    # Generate random date between 16-Jun-2026 and 16-Jul-2026
-    start_date = datetime(2026, 6, 16)
-    end_date = datetime(2026, 7, 16)
-
-    random_days = random.randint(0, (end_date - start_date).days)
-    random_date = start_date + timedelta(days=random_days)
-
-    return f"{random_date.strftime('%Y-%m-%d')} {time_part}"
+    cleaned = re.sub(r'^\[DEVICE_ID\]\s*', '', str(raw_time)).strip()
+    return cleaned or None
 
 def extract_ticket_type(ticket_number: str) -> str | None:
     if pd.isna(ticket_number):
@@ -82,22 +58,33 @@ def extract_fei_codes(text: str) -> list[str]:
     if pd.isna(text):
         return []
     codes = re.findall(r'FEI[\s:|\-]*(\d{3,5})', str(text), re.IGNORECASE)
-    return list(set(codes))
+    return sorted(set(codes))
 
 def extract_ips(text: str) -> list[str]:
     if pd.isna(text):
         return []
     ips = re.findall(r'\b((?:\d{1,3}\.){3}\d{1,3})\b', str(text))
-    return list(set(ip for ip in ips if 'X' not in ip))
+    return sorted(set(ip for ip in ips if 'X' not in ip))
 
 def extract_device_names_from_text(text: str, known_devices: set) -> list[str]:
     if pd.isna(text):
         return []
     text_str = str(text)
-    return [dev for dev in known_devices if len(dev) > 5 and dev in text_str]
+    return sorted(dev for dev in known_devices if len(dev) > 5 and dev in text_str)
 
 def log(msg: str):
     print(f"  [UPDATE] {msg}")
+
+
+def configured_database_path() -> Path:
+    """Resolve the same SQLite target as the backend configuration."""
+    backend_dir = Path(__file__).resolve().parent / 'backend'
+    sys.path.insert(0, str(backend_dir))
+    from config import Settings  # noqa: PLC0415
+
+    settings = Settings(_env_file=backend_dir / '.env')
+    db_path = Path(settings.db_path)
+    return db_path if db_path.is_absolute() else backend_dir / db_path
 
 # ============================================================================
 # INCREMENTAL UPDATE PIPELINE
@@ -109,6 +96,19 @@ def update_events(conn: sqlite3.Connection, csv_path: str) -> dict:
     print("=" * 70)
     
     df = pd.read_csv(csv_path, low_memory=False)
+    required_columns = {
+        'EventID', 'EventTime', 'EventType', 'Message', 'NodeID',
+        'DeviceName', 'CurrentStatus',
+    }
+    missing_columns = required_columns - set(df.columns)
+    if missing_columns:
+        raise ValueError(
+            f"Event CSV is missing required columns: {', '.join(sorted(missing_columns))}"
+        )
+
+    for col in ['IPAddress', 'MachineType', 'Vendor', 'Location']:
+        if col not in df.columns:
+            df[col] = None
     df['EventTime_Clean'] = df['EventTime'].apply(clean_event_time)
     
     for col in ['DeviceName', 'IPAddress', 'MachineType', 'Vendor', 'Location']:
@@ -119,13 +119,22 @@ def update_events(conn: sqlite3.Connection, csv_path: str) -> dict:
     df['SiteName'] = df['DeviceName'].apply(extract_site_name)
     
     # Update Event Types (Dynamically)
+    cursor = conn.cursor()
+    existing_event_types = dict(cursor.execute(
+        "SELECT event_type_id, event_type_name FROM event_type_lookup"
+    ).fetchall())
     event_types_df = df.dropna(subset=['EventType']).drop_duplicates(subset=['EventType'])
     event_type_lookup_data = []
     event_type_map = {}
     
     for _, row in event_types_df.iterrows():
         ev_id = int(row['EventType'])
-        ev_name = str(row['Message']) if pd.notna(row['Message']) else f"EventType-{ev_id}"
+        supplied_name = row.get('EventTypeName')
+        ev_name = (
+            str(supplied_name).strip()
+            if pd.notna(supplied_name) and str(supplied_name).strip()
+            else existing_event_types.get(ev_id, f"EventType-{ev_id}")
+        )
         
         severity = 'P4'
         category = 'other'
@@ -150,13 +159,13 @@ def update_events(conn: sqlite3.Connection, csv_path: str) -> dict:
         event_type_lookup_data.append((ev_id, ev_name, severity, category))
         event_type_map[ev_id] = ev_name
 
-    cursor = conn.cursor()
     cursor.executemany("""
         INSERT OR IGNORE INTO event_type_lookup (event_type_id, event_type_name, severity, category)
         VALUES (?, ?, ?, ?)
     """, event_type_lookup_data)
     
-    df['EventTypeName'] = df['EventType'].map(event_type_map).fillna('Unknown')
+    event_type_ids = pd.to_numeric(df['EventType'], errors='coerce')
+    df['EventTypeName'] = event_type_ids.map(event_type_map).fillna('Unknown')
     
     unnamed_cols = [c for c in df.columns if 'Unnamed' in str(c)]
     df['RawDetail'] = df[unnamed_cols[1] if len(unnamed_cols) > 1 else unnamed_cols[0]] if unnamed_cols else None
@@ -164,33 +173,50 @@ def update_events(conn: sqlite3.Connection, csv_path: str) -> dict:
     # UPSERT Devices (Update if name and IP exist)
     devices = df.dropna(subset=['DeviceName']).groupby(['DeviceName', 'IPAddress'], dropna=False).first().reset_index()
     for _, row in devices.iterrows():
-        cursor.execute("""
-            INSERT INTO devices (node_id, device_name, ip_address, site_code, site_name, machine_type, vendor, location)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(device_name, ip_address) DO UPDATE SET
-                node_id = excluded.node_id,
-                site_code = excluded.site_code,
-                site_name = excluded.site_name,
-                machine_type = excluded.machine_type,
-                vendor = excluded.vendor,
-                location = excluded.location;
-        """, (
-            int(row['NodeID']) if pd.notna(row['NodeID']) else None, row['DeviceName'], 
-            row['IPAddress'] if pd.notna(row['IPAddress']) else None, row['SiteCode'], row['SiteName'],
-            row['MachineType'] if pd.notna(row['MachineType']) else None, row['Vendor'] if pd.notna(row['Vendor']) else None,
-            row['Location'] if pd.notna(row['Location']) else None
-        ))
-    conn.commit()
+        ip_address = row['IPAddress'] if pd.notna(row['IPAddress']) else None
+        values = (
+            int(row['NodeID']) if pd.notna(row['NodeID']) else None,
+            row['SiteCode'], row['SiteName'],
+            row['MachineType'] if pd.notna(row['MachineType']) else None,
+            row['Vendor'] if pd.notna(row['Vendor']) else None,
+            row['Location'] if pd.notna(row['Location']) else None,
+        )
+        existing = cursor.execute(
+            "SELECT device_id FROM devices WHERE TRIM(device_name) = TRIM(?) AND ip_address IS ?",
+            (row['DeviceName'], ip_address),
+        ).fetchone()
+        if existing:
+            cursor.execute(
+                """UPDATE devices SET node_id=?, site_code=?, site_name=?, machine_type=?,
+                   vendor=?, location=? WHERE device_id=?""",
+                (*values, existing[0]),
+            )
+        else:
+            cursor.execute(
+                """INSERT INTO devices
+                   (node_id, device_name, ip_address, site_code, site_name,
+                    machine_type, vendor, location)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                (values[0], row['DeviceName'], ip_address, *values[1:]),
+            )
 
-    device_id_map = { (dname, dip): did for did, dname, dip in cursor.execute("SELECT device_id, device_name, ip_address FROM devices").fetchall() }
-    for dname, dip in list(device_id_map.keys()):
-        device_id_map[dname] = device_id_map[(dname, dip)]
+    device_id_map = {}
+    for did, dname, dip in cursor.execute(
+        "SELECT device_id, device_name, ip_address FROM devices"
+    ).fetchall():
+        device_id_map[(dname, dip)] = did
+        device_id_map[(dname.strip(), dip)] = did
+        device_id_map.setdefault(dname.strip(), did)
     
     # UPSERT Events (Update current_status if event already exists)
     batch = []
     for _, row in df.iterrows():
         if pd.isna(row.get('EventID')): continue
-        dev_id = device_id_map.get((row.get('DeviceName'), row.get('IPAddress'))) or device_id_map.get(row.get('DeviceName'))
+        ip_address = row.get('IPAddress')
+        ip_address = None if pd.isna(ip_address) else ip_address
+        device_name = row.get('DeviceName')
+        device_name = device_name.strip() if isinstance(device_name, str) else device_name
+        dev_id = device_id_map.get((device_name, ip_address)) or device_id_map.get(device_name)
         
         batch.append((
             int(row['EventID']), row.get('EventTime_Clean'),
@@ -205,7 +231,6 @@ def update_events(conn: sqlite3.Connection, csv_path: str) -> dict:
         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(event_id) DO UPDATE SET current_status = excluded.current_status;
     """, batch)
-    conn.commit()
     
     return {'processed_events': len(batch)}
 
@@ -215,11 +240,19 @@ def update_tickets(conn: sqlite3.Connection, csv_path: str) -> dict:
     print("=" * 70)
     
     df = pd.read_csv(csv_path, low_memory=False, encoding='latin-1')
+    if 'number' not in df.columns:
+        raise ValueError("Ticket CSV is missing required column: number")
+
     cursor = conn.cursor()
-    known_devices = set(row[0] for row in cursor.execute("SELECT device_name FROM devices").fetchall())
+    known_devices = {
+        row[0].strip()
+        for row in cursor.execute("SELECT device_name FROM devices").fetchall()
+    }
     
     batch = []
     for _, row in df.iterrows():
+        if pd.isna(row.get('number')):
+            continue
         all_text = f"{row.get('short_description', '')} {row.get('description', '')} {row.get('work_notes', '')}"
         fei_codes = extract_fei_codes(all_text)
         ips = extract_ips(all_text)
@@ -250,7 +283,6 @@ def update_tickets(conn: sqlite3.Connection, csv_path: str) -> dict:
             extracted_ips = excluded.extracted_ips,
             extracted_device_names = excluded.extracted_device_names;
     """, batch)
-    conn.commit()
     
     return {'processed_tickets': len(batch)}
 
@@ -268,7 +300,11 @@ def map_cross_references(conn: sqlite3.Connection):
         dev_site_norm = dev_site.lstrip('0') or '0'
         for tkt_id, tkt_sites_json in ticket_sites:
             try:
-                if any(dev_site_norm == ts.lstrip('0') or '0' for ts in json.loads(tkt_sites_json)):
+                ticket_sites_norm = {
+                    str(site).lstrip('0') or '0'
+                    for site in json.loads(tkt_sites_json)
+                }
+                if dev_site_norm in ticket_sites_norm:
                     cursor.execute("INSERT OR IGNORE INTO device_ticket_map (device_id, ticket_id, match_type, match_value, confidence) VALUES (?, ?, 'site_code', ?, 0.9)", (dev_id, tkt_id, dev_site))
             except json.JSONDecodeError: continue
 
@@ -279,7 +315,7 @@ def map_cross_references(conn: sqlite3.Connection):
         try:
             tkt_devs_list = json.loads(tkt_devs_json)
             for dev_id, dev_name in all_devices:
-                if dev_name in tkt_devs_list:
+                if dev_name.strip() in tkt_devs_list:
                     cursor.execute("INSERT OR IGNORE INTO device_ticket_map (device_id, ticket_id, match_type, match_value, confidence) VALUES (?, ?, 'device_name', ?, 0.8)", (dev_id, tkt_id, dev_name))
         except json.JSONDecodeError: continue
 
@@ -297,7 +333,6 @@ def map_cross_references(conn: sqlite3.Connection):
                         cursor.execute("INSERT OR IGNORE INTO device_ticket_map (device_id, ticket_id, match_type, match_value, confidence) VALUES (?, ?, 'ip_address', ?, 0.7)", (dev_id, tkt_id, tip))
         except json.JSONDecodeError: continue
 
-    conn.commit()
     log("Cross-reference bridges created successfully.")
 
 # ============================================================================
@@ -305,24 +340,37 @@ def map_cross_references(conn: sqlite3.Connection):
 # ============================================================================
 
 def main():
-    parser = argparse.ArgumentParser(description="Incrementally insert or update records into noc_automation.db")
+    parser = argparse.ArgumentParser(description="Incrementally update the configured NOC SQLite database")
     parser.add_argument("--events", type=str, help="Path to the new Event CSV", required=True)
     parser.add_argument("--tickets", type=str, help="Path to the new Tickets CSV", required=True)
-    parser.add_argument("--db", type=str, default="noc_automation.db", help="Path to SQLite DB (default: noc_automation.db)")
+    parser.add_argument("--db", type=str, help="Override the SQLite database configured by the backend")
     args = parser.parse_args()
 
-    if not Path(args.db).exists():
-        print(f"Error: Database {args.db} not found. Please run the initial ETL pipeline first.")
-        return
+    for input_path in (args.events, args.tickets):
+        if not Path(input_path).is_file():
+            parser.error(f"Input file not found: {input_path}")
 
-    conn = sqlite3.connect(args.db)
-    
-    update_events(conn, args.events)
-    update_tickets(conn, args.tickets)
-    map_cross_references(conn)
-    
-    conn.close()
-    print("\n[SUCCESS] Incremental update completed.")
+    db_path = Path(args.db) if args.db else configured_database_path()
+    if not db_path.is_file():
+        parser.error(f"Database {db_path} not found. Run the initial ETL pipeline first.")
+
+    conn = sqlite3.connect(db_path)
+    try:
+        conn.execute("PRAGMA foreign_keys = ON")
+        conn.execute("BEGIN IMMEDIATE")
+        event_stats = update_events(conn, args.events)
+        ticket_stats = update_tickets(conn, args.tickets)
+        map_cross_references(conn)
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+    print(f"\n[SUCCESS] Incremental update completed for {db_path}.")
+    print(f"Events processed: {event_stats['processed_events']}")
+    print(f"Tickets processed: {ticket_stats['processed_tickets']}")
 
 if __name__ == "__main__":
     main()

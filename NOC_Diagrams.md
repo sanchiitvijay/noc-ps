@@ -117,7 +117,11 @@ flowchart TD
         C -- Invalid --> D[Return 400 Bad Request]
         C -- Valid --> E[Create Ingest Job in DB]
         E --> F[Spawn asyncio Background Task]
-        F --> G[Return 202 Accepted to User immediately]
+        F --> G[Return 202 Accepted with job ID]
+    end
+
+    subgraph Frontend
+        G --> N[Poll GET /admin/ingest-excel/{job_id}]
     end
     
     subgraph Async Ingest Worker
@@ -127,7 +131,8 @@ flowchart TD
         I -- Event Data --> K[Map to EVENT_LOGS Table]
         J --> L[Insert/Update SQLite DB]
         K --> L
-        L --> M[Update Ingest Job Status = 'completed']
+        L --> M[Update Ingest Job Status = 'completed' or 'failed']
+        M --> N
     end
 ```
 

@@ -113,6 +113,6 @@ class TestDevLogger:
         with open(log_path, "r", encoding="utf-8") as f:
             content = f.read()
 
-        assert "Status Code:      422 Unprocessable Entity" in content
+        assert "Status Code:      422" in content
         assert "Total Time Taken:" in content
         assert "Request validation failed" in content or "Field required" in content

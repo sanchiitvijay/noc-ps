@@ -85,11 +85,46 @@ export default function AppLayout() {
   const openCriticalDeviceCount = criticalDeviceIds
     .filter((deviceId) => !acknowledgedDeviceIds.includes(deviceId)).length;
 
+  const [topSearch, setTopSearch] = useState('');
+
+  const handleTopSearch = (event) => {
+    event.preventDefault();
+    const query = topSearch.trim();
+    if (!query) return;
+    
+    // Check if numeric (event_id)
+    if (/^\d+$/.test(query)) {
+      navigate(`/alerts?event_id=${encodeURIComponent(query)}`);
+    } else {
+      navigate(`/alerts?search=${encodeURIComponent(query)}`);
+    }
+    setTopSearch(''); // clear after search
+  };
+
   return (
     <>
       <header>
         <div className="lg"><Logo /></div>
-        <input className="sr" placeholder="Search alerts, devices..." />
+        
+        <form className="header-search-form" onSubmit={handleTopSearch}>
+          <input
+            className="sr header-search-input"
+            placeholder="Search alerts, devices..."
+            value={topSearch}
+            onChange={(event) => setTopSearch(event.target.value)}
+          />
+          {topSearch && (
+            <button
+              type="button"
+              className="header-search-clear"
+              onClick={() => setTopSearch('')}
+              aria-label="Clear search"
+            >
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+            </button>
+          )}
+        </form>
+
         <span style={{ flex: 1 }} />
         <button
           aria-label={`${openCriticalDeviceCount} unacknowledged ${priorityOneSeverity} devices`}

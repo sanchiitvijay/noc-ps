@@ -1,4 +1,4 @@
-﻿import { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { getLogs } from '../services/api';
 import { useStore } from '../store';
@@ -81,13 +81,18 @@ export default function Alerts() {
     device_id: searchParams.get('device_id') || '',
     event_id: searchParams.get('event_id') || '',
     ip_address: searchParams.get('ip_address') || '',
+    search: searchParams.get('search') || '',
   }));
   const [selected, setSelected] = useState(null);
   const [simulatedEvents, setSimulatedEvents] = useState([]);
   const showUnacknowledgedOnly = searchParams.get('acknowledged') === 'false';
 
   useEffect(() => {
-    loadLogs(filters).catch(() => {});
+    // Initial load with filters parsed from URL
+    const { ip_address, event_id, ...rest } = filters;
+    const queryPayload = { ...rest };
+    if (event_id && event_id.trim()) queryPayload.event_id = event_id.trim();
+    loadLogs(queryPayload).catch(() => {});
   }, [loadLogs]);
 
   const updateFilter = (key, value) => {
@@ -95,8 +100,12 @@ export default function Alerts() {
   };
 
   const runQuery = (page = 1) => {
-    const { event_id, ip_address, ...apiFilters } = filters;
-    loadLogs({ ...apiFilters, page }).catch(() => {});
+    const { ip_address, event_id, ...rest } = filters;
+    const queryPayload = { ...rest, page };
+    if (event_id && event_id.trim()) {
+      queryPayload.event_id = event_id.trim();
+    }
+    loadLogs(queryPayload).catch(() => {});
   };
 
   const eventIdMatches = (eventId) => !filters.event_id || String(eventId) === filters.event_id.trim();
@@ -185,12 +194,13 @@ export default function Alerts() {
             onChange={(event) => updateFilter('device_id', event.target.value)}
           />
           <input
-            type="number"
-            min="1"
+            type="text"
+            inputMode="numeric"
+            pattern="[0-9]*"
             placeholder="Event ID"
             aria-label="Filter by event ID"
             value={filters.event_id}
-            onChange={(event) => updateFilter('event_id', event.target.value)}
+            onChange={(event) => updateFilter('event_id', event.target.value.replace(/\D/g, ''))}
           />
           <input
             type="text"

@@ -15,6 +15,7 @@ import json
 import logging
 import re
 from typing import Any
+import uuid
 
 import aiosqlite
 import pandas as pd
@@ -141,6 +142,20 @@ async def _fetchall(conn, query: str, params: tuple = ()):
     return await cursor.fetchall()
 
 
+async def _has_text_pk(conn, table: str, col: str) -> bool:
+    try:
+        cursor = await conn.execute(f"PRAGMA table_info({table})")
+        rows = await cursor.fetchall()
+        for row in rows:
+            name = row[1] if isinstance(row, (tuple, list)) else row["name"]
+            ctype = row[2] if isinstance(row, (tuple, list)) else row["type"]
+            if name == col:
+                return "TEXT" in str(ctype).upper()
+    except Exception:
+        pass
+    return False
+
+
 # ---------------------------------------------------------------------------
 # Event log ingestion
 # ---------------------------------------------------------------------------
@@ -159,6 +174,7 @@ async def _ingest_event_logs(conn: aiosqlite.Connection, df: pd.DataFrame) -> in
         Number of rows successfully inserted/updated.
     """
     df = _normalize_columns(df, EVENT_COLUMN_ALIASES)
+    is_text_device_id = await _has_text_pk(conn, "devices", "device_id")
 
     rows_processed = 0
     for _, row in df.iterrows():
@@ -204,18 +220,34 @@ async def _ingest_event_logs(conn: aiosqlite.Connection, df: pd.DataFrame) -> in
                     ),
                 )
             else:
-                cursor = await conn.execute(
-                    """INSERT INTO devices
-                       (node_id, device_name, ip_address, site_code, site_name,
-                        machine_type, vendor, location)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-                    (
-                        node_id, device_name, ip_address, site_code, site_name,
-                        _safe_str(row.get("machine_type")), _safe_str(row.get("vendor")),
-                        _safe_str(row.get("location")),
-                    ),
-                )
-                device_id = cursor.lastrowid
+                if is_text_device_id:
+                    new_device_id = str(uuid.uuid4())
+                    await conn.execute(
+                        """INSERT INTO devices
+                           (device_id, node_id, device_name, ip_address, site_code, site_name,
+                            machine_type, vendor, location)
+                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                        (
+                            new_device_id,
+                            node_id, device_name, ip_address, site_code, site_name,
+                            _safe_str(row.get("machine_type")), _safe_str(row.get("vendor")),
+                            _safe_str(row.get("location")),
+                        ),
+                    )
+                    device_id = new_device_id
+                else:
+                    cursor = await conn.execute(
+                        """INSERT INTO devices
+                           (node_id, device_name, ip_address, site_code, site_name,
+                            machine_type, vendor, location)
+                           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                        (
+                            node_id, device_name, ip_address, site_code, site_name,
+                            _safe_str(row.get("machine_type")), _safe_str(row.get("vendor")),
+                            _safe_str(row.get("location")),
+                        ),
+                    )
+                    device_id = cursor.lastrowid
 
         # Keep the event type ID/name pair consistent with the lookup table.
         if event_type_id is not None:
@@ -307,9 +339,11 @@ async def _ingest_tickets(conn: aiosqlite.Connection, df: pd.DataFrame) -> int:
     import json as _json  # noqa: PLC0415
 
     df = _normalize_columns(df, TICKET_COLUMN_ALIASES)
+    is_text_ticket_id = await _has_text_pk(conn, "sn_tickets", "ticket_id")
     known_devices = {
         row["device_name"].strip()
-        for row in await _fetchall(conn, "SELECT device_name FROM devices")
+        for row in await _fetchall(conn, "SELECT device_name FROM devices WHERE device_name IS NOT NULL")
+        if row["device_name"]
     }
     rows_processed = 0
 
@@ -354,38 +388,74 @@ async def _ingest_tickets(conn: aiosqlite.Connection, df: pd.DataFrame) -> int:
                 return _json.dumps([raw])
 
         try:
-            await conn.execute(
-                """
-                INSERT INTO sn_tickets
-                    (ticket_number, ticket_type, state, created_on, updated_on,
-                     closed_at, assignment_group, short_description, description,
-                     work_notes, extracted_site_codes, extracted_ips, extracted_device_names)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(ticket_number) DO UPDATE SET
-                    state               = excluded.state,
-                    updated_on          = excluded.updated_on,
-                    closed_at           = excluded.closed_at,
-                    work_notes          = excluded.work_notes,
-                    extracted_site_codes = excluded.extracted_site_codes,
-                    extracted_ips        = excluded.extracted_ips,
-                    extracted_device_names = excluded.extracted_device_names
-                """,
-                (
-                    ticket_number,
-                    ticket_type,
-                    _safe_str(row.get("state")),
-                    _safe_str(row.get("created_on") or row.get("opened_at")),
-                    _safe_str(row.get("updated_on") or row.get("sys_updated_on")),
-                    _safe_str(row.get("closed_at")),
-                    _safe_str(row.get("assignment_group")),
-                    _safe_str(row.get("short_description")),
-                    _safe_str(row.get("description")),
-                    _safe_str(row.get("work_notes")),
-                    _to_json_str(row.get("extracted_site_codes")) or (_json.dumps(extracted_sites) if extracted_sites else None),
-                    _to_json_str(row.get("extracted_ips")) or (_json.dumps(extracted_ips) if extracted_ips else None),
-                    _to_json_str(row.get("extracted_device_names")) or (_json.dumps(extracted_devices) if extracted_devices else None),
-                ),
-            )
+            if is_text_ticket_id:
+                new_ticket_id = str(uuid.uuid4())
+                await conn.execute(
+                    """
+                    INSERT INTO sn_tickets
+                        (ticket_id, ticket_number, ticket_type, state, created_on, updated_on,
+                         closed_at, assignment_group, short_description, description,
+                         work_notes, extracted_site_codes, extracted_ips, extracted_device_names)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(ticket_number) DO UPDATE SET
+                        state               = excluded.state,
+                        updated_on          = excluded.updated_on,
+                        closed_at           = excluded.closed_at,
+                        work_notes          = excluded.work_notes,
+                        extracted_site_codes = excluded.extracted_site_codes,
+                        extracted_ips        = excluded.extracted_ips,
+                        extracted_device_names = excluded.extracted_device_names
+                    """,
+                    (
+                        new_ticket_id,
+                        ticket_number,
+                        ticket_type,
+                        _safe_str(row.get("state")),
+                        _safe_str(row.get("created_on") or row.get("opened_at")),
+                        _safe_str(row.get("updated_on") or row.get("sys_updated_on")),
+                        _safe_str(row.get("closed_at")),
+                        _safe_str(row.get("assignment_group")),
+                        _safe_str(row.get("short_description")),
+                        _safe_str(row.get("description")),
+                        _safe_str(row.get("work_notes")),
+                        _to_json_str(row.get("extracted_site_codes")) or (_json.dumps(extracted_sites) if extracted_sites else None),
+                        _to_json_str(row.get("extracted_ips")) or (_json.dumps(extracted_ips) if extracted_ips else None),
+                        _to_json_str(row.get("extracted_device_names")) or (_json.dumps(extracted_devices) if extracted_devices else None),
+                    ),
+                )
+            else:
+                await conn.execute(
+                    """
+                    INSERT INTO sn_tickets
+                        (ticket_number, ticket_type, state, created_on, updated_on,
+                         closed_at, assignment_group, short_description, description,
+                         work_notes, extracted_site_codes, extracted_ips, extracted_device_names)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(ticket_number) DO UPDATE SET
+                        state               = excluded.state,
+                        updated_on          = excluded.updated_on,
+                        closed_at           = excluded.closed_at,
+                        work_notes          = excluded.work_notes,
+                        extracted_site_codes = excluded.extracted_site_codes,
+                        extracted_ips        = excluded.extracted_ips,
+                        extracted_device_names = excluded.extracted_device_names
+                    """,
+                    (
+                        ticket_number,
+                        ticket_type,
+                        _safe_str(row.get("state")),
+                        _safe_str(row.get("created_on") or row.get("opened_at")),
+                        _safe_str(row.get("updated_on") or row.get("sys_updated_on")),
+                        _safe_str(row.get("closed_at")),
+                        _safe_str(row.get("assignment_group")),
+                        _safe_str(row.get("short_description")),
+                        _safe_str(row.get("description")),
+                        _safe_str(row.get("work_notes")),
+                        _to_json_str(row.get("extracted_site_codes")) or (_json.dumps(extracted_sites) if extracted_sites else None),
+                        _to_json_str(row.get("extracted_ips")) or (_json.dumps(extracted_ips) if extracted_ips else None),
+                        _to_json_str(row.get("extracted_device_names")) or (_json.dumps(extracted_devices) if extracted_devices else None),
+                    ),
+                )
             rows_processed += 1
         except Exception as exc:
             logger.warning("Skipping ticket row '%s' due to error: %s", ticket_number, exc)
@@ -396,14 +466,25 @@ async def _ingest_tickets(conn: aiosqlite.Connection, df: pd.DataFrame) -> int:
 
 async def _map_ticket_references(conn: aiosqlite.Connection) -> None:
     """Create exact site, device-name, and IP links for imported tickets."""
+    is_text_dtmap_id = await _has_text_pk(conn, "device_ticket_map", "id")
+
+    # If any tickets have NULL ticket_id in text PK mode, populate them
+    if await _has_text_pk(conn, "sn_tickets", "ticket_id"):
+        null_tkts = await _fetchall(conn, "SELECT ticket_number FROM sn_tickets WHERE ticket_id IS NULL")
+        for nt in null_tkts:
+            tnum = nt[0] if isinstance(nt, (tuple, list)) else nt["ticket_number"]
+            await conn.execute("UPDATE sn_tickets SET ticket_id = ? WHERE ticket_number = ?", (str(uuid.uuid4()), tnum))
+        if null_tkts:
+            await conn.commit()
+
     devices = await _fetchall(
         conn,
-        "SELECT device_id, device_name, site_code, ip_address FROM devices"
+        "SELECT device_id, device_name, site_code, ip_address FROM devices WHERE device_id IS NOT NULL"
     )
     tickets = await _fetchall(
         conn,
         """SELECT ticket_id, extracted_site_codes, extracted_device_names, extracted_ips
-           FROM sn_tickets"""
+           FROM sn_tickets WHERE ticket_id IS NOT NULL"""
     )
 
     for ticket in tickets:
@@ -424,12 +505,20 @@ async def _map_ticket_references(conn: aiosqlite.Connection) -> None:
             if device["ip_address"] in ips:
                 matches.append(("ip_address", device["ip_address"], 0.7))
             for match_type, match_value, confidence in matches:
-                await conn.execute(
-                    """INSERT OR IGNORE INTO device_ticket_map
-                       (device_id, ticket_id, match_type, match_value, confidence)
-                       VALUES (?, ?, ?, ?, ?)""",
-                    (device["device_id"], ticket["ticket_id"], match_type, match_value, confidence),
-                )
+                if is_text_dtmap_id:
+                    await conn.execute(
+                        """INSERT OR IGNORE INTO device_ticket_map
+                           (id, device_id, ticket_id, match_type, match_value, confidence)
+                           VALUES (?, ?, ?, ?, ?, ?)""",
+                        (str(uuid.uuid4()), device["device_id"], ticket["ticket_id"], match_type, match_value, confidence),
+                    )
+                else:
+                    await conn.execute(
+                        """INSERT OR IGNORE INTO device_ticket_map
+                           (device_id, ticket_id, match_type, match_value, confidence)
+                           VALUES (?, ?, ?, ?, ?)""",
+                        (device["device_id"], ticket["ticket_id"], match_type, match_value, confidence),
+                    )
     await conn.commit()
 
 

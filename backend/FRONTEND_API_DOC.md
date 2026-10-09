@@ -170,6 +170,7 @@ curl -X GET "http://localhost:8000/get-metrics" \
 Retrieves paginated event logs. 
 
 **Query Parameters:**
+- `event_id` (optional, int) - Filter by exact event ID.
 - `device_id` (optional, int)
 - `event_type_id` (optional, int)
 - `severity` (optional, str) - e.g. "P1", "P2", "P3"

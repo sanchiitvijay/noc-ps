@@ -21,6 +21,7 @@ logger = logging.getLogger(__name__)
 
 async def get_event_logs(
     conn: aiosqlite.Connection,
+    event_id: int | None = None,
     device_id: int | None = None,
     event_type_id: int | None = None,
     severity: str | None = None,
@@ -30,6 +31,10 @@ async def get_event_logs(
 ) -> dict:
     conditions: list[str] = []
     params: list = []
+
+    if event_id is not None:
+        conditions.append("event_logs.event_id = ?")
+        params.append(event_id)
 
     if device_id is not None:
         conditions.append("event_logs.device_id = ?")

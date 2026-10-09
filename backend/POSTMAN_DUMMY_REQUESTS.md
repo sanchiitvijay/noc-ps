@@ -95,9 +95,9 @@ Fetches widget data for the NOC dashboard.
 ```
 
 ### 2.2 Get Event Logs
-Fetches a paginated list of network events.
+Fetches a paginated list of network events. Supports filtering by `event_id`, `device_id`, `event_type_id`, `severity`, and text `search`.
 - **Method:** `GET`
-- **URL:** `http://localhost:8000/get-logs?page=1&page_size=5&severity=P1`
+- **URL:** `http://localhost:8000/get-logs?page=1&page_size=5&severity=P1&event_id=123236587`
 - **Headers:** `Authorization: Bearer <your_token>`
 - **Expected Response (200 OK):**
 ```json

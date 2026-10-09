@@ -85,3 +85,35 @@ class TestLogs:
         """Analyst role can access /get-logs."""
         resp = client.get("/get-logs", headers=analyst_headers)
         assert resp.status_code == 200
+
+    def test_get_logs_filter_event_id(self, client: TestClient, admin_headers: dict):
+        """Filtering by an existing event_id returns that exact event."""
+        # First retrieve an existing event_id
+        list_resp = client.get("/get-logs", params={"page_size": 1}, headers=admin_headers)
+        assert list_resp.status_code == 200
+        data = list_resp.json()["data"]
+        if not data:
+            return
+        target_id = data[0]["event_id"]
+
+        resp = client.get("/get-logs", params={"event_id": target_id}, headers=admin_headers)
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["success"] is True
+        assert len(body["data"]) == 1
+        assert body["data"][0]["event_id"] == target_id
+        assert body["meta"]["total"] == 1
+
+    def test_get_logs_filter_event_id_not_found(self, client: TestClient, admin_headers: dict):
+        """Filtering by non-existent event_id returns empty list with total 0."""
+        resp = client.get("/get-logs", params={"event_id": 88888888888}, headers=admin_headers)
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["success"] is True
+        assert body["data"] == []
+        assert body["meta"]["total"] == 0
+
+    def test_get_logs_filter_event_id_invalid(self, client: TestClient, admin_headers: dict):
+        """Non-integer event_id returns 422 Unprocessable Entity."""
+        resp = client.get("/get-logs", params={"event_id": "not_an_int"}, headers=admin_headers)
+        assert resp.status_code == 422

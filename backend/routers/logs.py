@@ -37,6 +37,7 @@ router = APIRouter(tags=["Logs"])
 async def get_logs(
     current_user: Annotated[dict, Depends(get_current_user)],
     conn: aiosqlite.Connection = Depends(get_connection),
+    event_id: int | None = Query(default=None, description="Filter by event ID"),
     device_id: int | None = Query(default=None, description="Filter by device ID"),
     event_type_id: int | None = Query(default=None, description="Filter by event type ID"),
     severity: str | None = Query(
@@ -57,12 +58,13 @@ async def get_logs(
 ) -> JSONResponse:
     """Return a paginated list of event_logs enriched with device and event type metadata.
 
-    Supports filtering by device, event type, severity, and free-text search.
+    Supports filtering by event_id, device, event type, severity, and free-text search.
     Results are ordered by event_id DESC (newest first).
 
     Args:
         current_user: Authenticated user (any role).
         conn: Injected database connection.
+        event_id: Optional event ID filter.
         device_id: Optional device filter.
         event_type_id: Optional event type filter.
         severity: Optional severity level filter.
@@ -79,6 +81,7 @@ async def get_logs(
     try:
         result = await get_event_logs(
             conn,
+            event_id=event_id,
             device_id=device_id,
             event_type_id=event_type_id,
             severity=severity,

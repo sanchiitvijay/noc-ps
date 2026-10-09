@@ -1,0 +1,28 @@
+number,state,opened_by,sys_created_on,sys_updated_on,closed_at,assignment_group,assigned_to,short_description,description,work_notes,work_notes_list
+RITM3427686,Pending,,07-06-2026 16:53,07-08-2026 17:08,,Network Operations Center (NOC),,Multi Site Versa Router Surveillance Addon,"Multi Site Versa Router Surveillance Addon
+FEI1965
+FEI1934
+FEI1494","07-08-2026 17:08:50 - (Work notes)
+From: MAC Mailbox
+Sent: Wednesday, July 8, 2026 3:47 PM
+Please add surveillance monitoring for the listed sites.",
+INC0010001,Open,admin,01-15-2026 09:30,01-15-2026 14:22,,Network Operations Center (NOC),John Smith,3239_AP101_MERAKI not responding,"Device 3239_AP101_MERAKI (10.82.216.151) is not responding to pings.
+FEI 3239
+Affecting site SiteAlpha.","01-15-2026 14:22 - Escalated to Tier 2 for investigation
+01-15-2026 10:00 - Attempted remote reboot, device still unresponsive.",
+INC0010002,Resolved,admin,01-15-2026 09:45,01-15-2026 16:00,01-15-2026 16:00,Network Operations Center (NOC),Jane Doe,Multiple interfaces down at Lakewood site,"Multiple interface down alerts on 0501-Lakewood-NJ-N3048P-40 (10.142.72.40).
+FEI 501
+Port Gi2/0/46 and Gi1/0/22 reported down.","01-15-2026 15:50 - Confirmed physical cable issue. Replaced cable. Interfaces came back up.",
+INC0010003,In Progress,admin,01-16-2026 07:00,01-16-2026 10:30,,Network Operations Center (NOC),,AP disappeared from WLC,"Thin AP disappeared from WL Controller at LEB-FLEX-vWLC (10.254.71.4).
+Device: LEB-FLEX-vWLC
+Need to check wireless controller logs.","01-16-2026 10:30 - Security team notified. Checking WLC config.",
+CHG0083071,Scheduled,,07-10-2026 07:36,07-13-2026 10:46:17,,Network Operations Center (NOC),,Versa Failover Test Branches week of Jul 14,"Versa Failover Test Branches.
+Testing failover for 3862-Dover-NJ at 10.131.208.2
+FEI 3862
+Maintenance window: 07-14-2026 02:00-06:00 EST",,
+INC0010004,Open,admin,01-18-2026 03:15,01-18-2026 05:40,,Network Operations Center (NOC),Bob Johnson,Interface flapping at Southampton,"Interface flapping on 5926-Southampton-NJ-N3248P-MDF-40 (10.151.132.40).
+FEI 5926
+Port 42 10G - Smart APC toggling up/down.","01-18-2026 05:40 - Investigating duplex/speed mismatch on port 42.",
+INC0010005,Open,admin,01-19-2026 14:00,01-19-2026 14:00,,Network Operations Center (NOC),,Alton IL APC management port down,"APC management interface down on 3778-Alton-IL-N1524P-X1-30 at 10.140.104.30.
+FEI 3778
+Port 18 Gigabit - APC MANAGEMENT Down.","01-19-2026 14:00 - Dispatching tech to check UPS connectivity.",

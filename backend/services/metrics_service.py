@@ -9,8 +9,8 @@ async def build_metrics(conn: aiosqlite.Connection, time_window: str = "all") ->
     Time window uses the latest event_time in the database as "now" since this 
     is historical data.
     """
-    # 1. Determine "now" (max event_time)
-    max_time_row = await fetch_one(conn, "SELECT MAX(event_time) as max_time FROM event_logs")
+    # 1. Determine "now" (max event_time), ignoring malformed rows that lack a date (e.g. just time "20:00:04")
+    max_time_row = await fetch_one(conn, "SELECT MAX(event_time) as max_time FROM event_logs WHERE event_time LIKE '202%'")
     max_time = max_time_row["max_time"] if max_time_row else None
     
     if not max_time:

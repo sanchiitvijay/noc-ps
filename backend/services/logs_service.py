@@ -22,10 +22,12 @@ logger = logging.getLogger(__name__)
 async def get_event_logs(
     conn: aiosqlite.Connection,
     event_id: int | None = None,
-    device_id: int | None = None,
+    device_id: str | None = None,
     event_type_id: int | None = None,
+    event_type_name: str | None = None,
     severity: str | None = None,
     search: str | None = None,
+    category: str | None = None,
     page: int = 1,
     page_size: int = 50,
 ) -> dict:
@@ -44,6 +46,10 @@ async def get_event_logs(
         conditions.append("event_logs.event_type_id = ?")
         params.append(event_type_id)
 
+    if event_type_name:
+        conditions.append("event_logs.event_type_name LIKE ?")
+        params.append(f"%{event_type_name}%")
+
     if severity is not None:
         # Pre-resolve severity to event_type_ids to avoid joining the whole table
         et_rows = await fetch_all(
@@ -56,13 +62,35 @@ async def get_event_logs(
             placeholders = ",".join(valid_et_ids)
             conditions.append(f"event_logs.event_type_id IN ({placeholders})")
         else:
-            # Severity matched nothing, so return no results immediately
+            return {"data": [], "meta": paginate(0, page, page_size)}
+
+    if category is not None:
+        # Pre-resolve category to event_type_ids
+        et_rows = await fetch_all(
+            conn, 
+            "SELECT event_type_id FROM event_type_lookup WHERE category = ?", 
+            (category,)
+        )
+        valid_et_ids = [str(r["event_type_id"]) for r in et_rows]
+        if valid_et_ids:
+            placeholders = ",".join(valid_et_ids)
+            conditions.append(f"event_logs.event_type_id IN ({placeholders})")
+        else:
             return {"data": [], "meta": paginate(0, page, page_size)}
 
     if search:
-        conditions.append("(event_logs.message LIKE ? OR event_logs.raw_detail LIKE ?)")
+        # Search all text fields except message (description)
+        # We can search event_type_name, raw_detail, or device attributes via subquery
+        conditions.append("""(
+            event_logs.event_type_name LIKE ? OR 
+            event_logs.raw_detail LIKE ? OR
+            event_logs.device_id IN (
+                SELECT device_id FROM devices 
+                WHERE device_name LIKE ? OR ip_address LIKE ? OR site_code LIKE ?
+            )
+        )""")
         like_term = f"%{search}%"
-        params.extend([like_term, like_term])
+        params.extend([like_term, like_term, like_term, like_term, like_term])
 
     where_clause = ("WHERE " + " AND ".join(conditions)) if conditions else ""
 
@@ -202,13 +230,16 @@ async def create_activity_log(
     ip_address: str | None = None,
     request_body: str | None = None,
     response_status: int | None = None,
+    user_agent: str | None = None,
+    duration_ms: float | None = None,
+    target_resource: str | None = None,
 ) -> int:
     return await execute_write(
         conn,
         """
         INSERT INTO activity_logs
-            (user_id, action, endpoint, ip_address, request_body, response_status)
-        VALUES (?, ?, ?, ?, ?, ?)
+            (user_id, action, endpoint, ip_address, request_body, response_status, user_agent, duration_ms, target_resource)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
-        (user_id, action, endpoint, ip_address, request_body, response_status),
+        (user_id, action, endpoint, ip_address, request_body, response_status, user_agent, duration_ms, target_resource),
     )

@@ -140,7 +140,14 @@ class ActivityLoggerMiddleware(BaseHTTPMiddleware):
                 request.headers.get("X-Forwarded-For", "").split(",")[0].strip()
                 or (request.client.host if request.client else None)
             )
+            user_agent = request.headers.get("User-Agent")
             action = f"{request.method} {path}"
+            
+            # Simple heuristic for target_resource based on path
+            target_resource = None
+            path_parts = path.strip("/").split("/")
+            if len(path_parts) >= 2:
+                target_resource = path_parts[1]
 
             async with get_db_context() as db:
                 db.row_factory = None  # don't need row_factory for write
@@ -152,6 +159,9 @@ class ActivityLoggerMiddleware(BaseHTTPMiddleware):
                     ip_address=client_ip,
                     request_body=body_str,
                     response_status=response.status_code,
+                    user_agent=user_agent,
+                    duration_ms=duration_ms,
+                    target_resource=target_resource,
                 )
 
             logger.debug(

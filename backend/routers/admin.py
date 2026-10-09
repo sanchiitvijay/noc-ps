@@ -201,6 +201,16 @@ async def get_ingest_status(
     conn: aiosqlite.Connection = Depends(get_connection),
 ) -> JSONResponse:
     job = await get_ingest_job(conn, job_id)
+    import json
+    
+    def parse_json(val):
+        if not val:
+            return None
+        try:
+            return json.loads(val)
+        except Exception:
+            return val
+
     return JSONResponse(
         status_code=200,
         content={
@@ -215,6 +225,91 @@ async def get_ingest_status(
                 "rows_processed": job.get("rows_processed", 0),
                 "error_message": job.get("error_message"),
                 "triggered_by": job.get("triggered_by"),
+                "dataset": job.get("dataset"),
+                "size_bytes": job.get("size_bytes"),
+                "progress": job.get("progress", 0),
+                "stage": job.get("stage"),
+                "preview": parse_json(job.get("preview")),
+                "mapping": parse_json(job.get("mapping")),
+                "options": parse_json(job.get("options")),
+                "stats": parse_json(job.get("stats"))
             },
         },
+    )
+
+
+@router.get(
+    "/ingest-jobs",
+    summary="List all ingest jobs (admin only)",
+)
+async def list_ingest_jobs(
+    current_user: Annotated[dict, Depends(require_admin)],
+    conn: aiosqlite.Connection = Depends(get_connection),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=50, ge=1, le=200),
+) -> JSONResponse:
+    from database.connection import fetch_all
+    from utils.pagination import get_offset, paginate
+    import json
+    
+    def parse_json(val):
+        if not val:
+            return None
+        try:
+            return json.loads(val)
+        except Exception:
+            return val
+            
+    count_row = await conn.execute("SELECT COUNT(*) AS cnt FROM ingest_jobs")
+    count_dict = dict(await count_row.fetchone() or {})
+    total = count_dict.get("cnt", 0)
+    
+    if total == 0:
+         return JSONResponse(
+            status_code=200,
+            content={
+                "success": True,
+                "message": "OK",
+                "data": [],
+                "meta": paginate(0, page, page_size)
+            }
+         )
+         
+    offset = get_offset(page, page_size)
+    cursor = await conn.execute(
+        "SELECT * FROM ingest_jobs ORDER BY id DESC LIMIT ? OFFSET ?",
+        (page_size, offset)
+    )
+    rows = await cursor.fetchall()
+    
+    data = []
+    for r in rows:
+        job = dict(r)
+        data.append({
+            "id": job["id"],
+            "filename": job["filename"],
+            "status": job["status"],
+            "started_at": job.get("started_at"),
+            "completed_at": job.get("completed_at"),
+            "rows_processed": job.get("rows_processed", 0),
+            "error_message": job.get("error_message"),
+            "triggered_by": job.get("triggered_by"),
+            "dataset": job.get("dataset"),
+            "size_bytes": job.get("size_bytes"),
+            "progress": job.get("progress", 0),
+            "stage": job.get("stage"),
+            "preview": parse_json(job.get("preview")),
+            "mapping": parse_json(job.get("mapping")),
+            "options": parse_json(job.get("options")),
+            "stats": parse_json(job.get("stats"))
+        })
+        
+    return JSONResponse(
+        status_code=200,
+        content={
+            "success": True,
+            "message": "OK",
+            "data": data,
+            "meta": paginate(total, page, page_size)
+        }
     )

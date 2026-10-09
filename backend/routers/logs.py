@@ -38,15 +38,20 @@ async def get_logs(
     current_user: Annotated[dict, Depends(get_current_user)],
     conn: aiosqlite.Connection = Depends(get_connection),
     event_id: int | None = Query(default=None, description="Filter by event ID"),
-    device_id: int | None = Query(default=None, description="Filter by device ID"),
+    device_id: str | None = Query(default=None, description="Filter by device ID"),
     event_type_id: int | None = Query(default=None, description="Filter by event type ID"),
+    event_type_name: str | None = Query(default=None, description="Filter by event type name"),
     severity: str | None = Query(
         default=None,
         description="Filter by severity: P1 | P2 | P3 | P4",
     ),
+    category: str | None = Query(
+        default=None,
+        description="Filter by category (e.g. connectivity, performance, etc)",
+    ),
     search: str | None = Query(
         default=None,
-        description="Text search in message and raw_detail fields",
+        description="Text search in all type error fields except description",
     ),
     page: int = Query(default=1, ge=1, description="Page number (1-indexed)"),
     page_size: int = Query(
@@ -58,7 +63,7 @@ async def get_logs(
 ) -> JSONResponse:
     """Return a paginated list of event_logs enriched with device and event type metadata.
 
-    Supports filtering by event_id, device, event type, severity, and free-text search.
+    Supports filtering by event_id, device, event type, severity, category, and free-text search.
     Results are ordered by event_id DESC (newest first).
 
     Args:
@@ -68,7 +73,8 @@ async def get_logs(
         device_id: Optional device filter.
         event_type_id: Optional event type filter.
         severity: Optional severity level filter.
-        search: Optional text to search in message/raw_detail.
+        category: Optional category filter.
+        search: Optional text search.
         page: Page number.
         page_size: Items per page.
 
@@ -84,7 +90,9 @@ async def get_logs(
             event_id=event_id,
             device_id=device_id,
             event_type_id=event_type_id,
+            event_type_name=event_type_name,
             severity=severity,
+            category=category,
             search=search,
             page=page,
             page_size=page_size,

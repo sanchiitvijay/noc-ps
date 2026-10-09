@@ -28,7 +28,7 @@ from config import settings
 from database.migrations import create_default_admin, run_migrations
 from middleware.activity_logger import ActivityLoggerMiddleware
 from middleware.dev_logger import DevLoggingMiddleware
-from routers import admin, auth, error_info, internal, logs, metrics, simulation, solution_summaries
+from routers import admin, auth, error_info, internal, logs, metrics, simulation, solution_summaries, sites, tickets
 from utils.exceptions import register_exception_handlers
 
 # ---------------------------------------------------------------------------
@@ -131,6 +131,8 @@ def create_app() -> FastAPI:
     app.include_router(error_info.router)
     app.include_router(solution_summaries.router)
     app.include_router(simulation.router)
+    app.include_router(sites.router)
+    app.include_router(tickets.router)
 
     # ── Health check ──────────────────────────────────────────────────────────
     @app.get("/health", tags=["Health"], summary="Health check")

@@ -75,6 +75,13 @@ async def build_metrics(conn: aiosqlite.Connection, time_window: str = "all") ->
         s_name = status_map.get(status, f"Status {status}")
         status_dist[s_name] = status_dist.get(s_name, 0) + cnt
 
+    severity_order = ["P1", "P2", "P3", "P4", "Critical", "Warning", "Info", "Unknown"]
+    sorted_severity_dist = {k: severity_dist[k] for k in severity_order if k in severity_dist}
+    for k in sorted(severity_dist.keys()):
+        if k not in sorted_severity_dist:
+            sorted_severity_dist[k] = severity_dist[k]
+    severity_dist = sorted_severity_dist
+
     # 5. Top 20 devices optimized (No JOINs on the large table)
     q_top = f"""
         SELECT device_id, COUNT(*) as cnt 
@@ -110,12 +117,55 @@ async def build_metrics(conn: aiosqlite.Connection, time_window: str = "all") ->
     trend_rows = await fetch_all(conn, q_trend, params)
     events_trend = [{"time": r["time_bucket"], "count": r["cnt"]} for r in trend_rows]
 
+    where_e = where_clause.replace("event_logs.", "e.")
+    
+    # 7. Busiest sites
+    q_sites = f"""
+        SELECT s.label as site_name, s.code as site_code, COUNT(e.event_id) as count
+        FROM event_logs e
+        JOIN devices d ON e.device_id = d.device_id
+        LEFT JOIN sites s ON d.site_code = s.code
+        {where_e}
+        GROUP BY s.code, s.label
+        ORDER BY count DESC
+        LIMIT 10
+    """
+    busiest_sites = [dict(r) for r in await fetch_all(conn, q_sites, params)]
+
+    # 8. Alerts by state
+    q_states = f"""
+        SELECT s.state, COUNT(e.event_id) as count
+        FROM event_logs e
+        JOIN devices d ON e.device_id = d.device_id
+        JOIN sites s ON d.site_code = s.code
+        {where_e}
+        GROUP BY s.state
+        ORDER BY count DESC
+    """
+    alerts_by_state = [dict(r) for r in await fetch_all(conn, q_states, params)]
+
+    # 9. Top event types
+    q_top_types = f"""
+        SELECT l.event_type_name as name, l.severity, COUNT(e.event_id) as count
+        FROM event_logs e
+        JOIN event_type_lookup l ON e.event_type_id = l.event_type_id
+        {where_e}
+        GROUP BY l.event_type_id, l.event_type_name, l.severity
+        ORDER BY count DESC
+        LIMIT 10
+    """
+    top_event_types = [dict(r) for r in await fetch_all(conn, q_top_types, params)]
+
     return {
         "time_window": time_window,
         "total_events": total_events,
+        "alert_volume": total_events,
         "events_by_severity": severity_dist,
         "events_by_category": category_dist,
         "top_alerting_devices": top_devices,
         "events_by_status": status_dist,
-        "events_trend": events_trend
+        "events_trend": events_trend,
+        "busiest_sites": busiest_sites,
+        "alerts_by_state": alerts_by_state,
+        "top_event_types": top_event_types
     }

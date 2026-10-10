@@ -3,8 +3,19 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#00446A" />
     <link rel="icon" href="/favicon.png" />
-    <title>Network Alerts Automation Platform</title>
+    <title>NAAP · Network Alerts Automation Platform</title>
+    <script>
+      // Resolve the day/night theme before first paint to avoid a flash.
+      (function () {
+        try {
+          var t = localStorage.getItem("naap.theme");
+          if (!t) t = window.matchMedia && matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+          if (t === "dark") document.documentElement.classList.add("dark");
+        } catch (e) {}
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

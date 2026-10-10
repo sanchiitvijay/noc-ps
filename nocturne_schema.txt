@@ -1,0 +1,208 @@
+CREATE TABLE meta (
+    key   TEXT PRIMARY KEY,
+    value TEXT
+);
+CREATE TABLE users (
+    id            INTEGER PRIMARY KEY,
+    username      TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    display_name  TEXT,
+    password_hash TEXT NOT NULL,
+    role          TEXT NOT NULL,
+    active        INTEGER NOT NULL DEFAULT 1,
+    must_change   INTEGER NOT NULL DEFAULT 0,
+    created_at    TEXT NOT NULL,
+    last_login_at TEXT
+);
+CREATE TABLE audit_log (
+    id       INTEGER PRIMARY KEY,
+    at       TEXT NOT NULL,
+    user_id  INTEGER,
+    username TEXT,
+    action   TEXT NOT NULL,
+    target   TEXT,
+    detail   TEXT,
+    ip       TEXT
+);
+CREATE INDEX ix_audit_at ON audit_log(at DESC);
+CREATE TABLE sites (
+    code       TEXT PRIMARY KEY,         -- canonical, zero-padded site/FEI code
+    label      TEXT,                     -- "Dallas, TX"
+    city       TEXT,
+    state      TEXT,
+    address    TEXT,
+    updated_at TEXT
+);
+CREATE TABLE devices (
+    id           INTEGER PRIMARY KEY,
+    name         TEXT NOT NULL,
+    name_key     TEXT NOT NULL UNIQUE,   -- lower-cased name, the identity used for matching
+    ip           TEXT,
+    node_id      INTEGER,
+    site_code    TEXT,
+    role         TEXT,
+    machine_type TEXT,
+    vendor       TEXT,
+    location     TEXT,
+    first_seen   TEXT,
+    last_seen    TEXT,
+    last_status  INTEGER,
+    event_count  INTEGER NOT NULL DEFAULT 0,
+    extra        TEXT
+);
+CREATE INDEX ix_devices_ip   ON devices(ip);
+CREATE INDEX ix_devices_site ON devices(site_code);
+CREATE INDEX ix_devices_role ON devices(role);
+CREATE TABLE event_types (
+    type_id     INTEGER PRIMARY KEY,
+    name        TEXT,
+    source_name TEXT,                    -- name as it arrived in the export
+    severity    TEXT,                    -- NULL = decided by classification rules
+    category    TEXT,                    -- NULL = decided by classification rules
+    sample      TEXT,
+    updated_at  TEXT
+);
+CREATE TABLE events (
+    id          INTEGER PRIMARY KEY,
+    source      TEXT NOT NULL DEFAULT 'import',   -- import | simulation | custom
+    source_id   INTEGER NOT NULL,                 -- EventID from the monitoring tool
+    ts          TEXT,                             -- ISO timestamp "YYYY-MM-DD HH:MM:SS.fff"
+    ts_inferred INTEGER NOT NULL DEFAULT 0,       -- 0 file · 1 reconstructed · 2 aligned to tickets · 3 random spread
+    day_offset  INTEGER,                          -- relative day (0 = newest) for rows that had time of day only
+    type_id     INTEGER,
+    name        TEXT,
+    message     TEXT,
+    device_id   INTEGER REFERENCES devices(id),
+    device_name TEXT,
+    ip          TEXT,
+    site_code   TEXT,
+    status_code INTEGER,
+    severity    TEXT,
+    category    TEXT,
+    actionable  INTEGER NOT NULL DEFAULT 0,
+    transition  TEXT,                             -- down | up | NULL
+    pair_key    TEXT,                             -- links a "down" with its matching "up"
+    state       TEXT NOT NULL DEFAULT 'new',      -- new | acknowledged | resolved
+    owner       TEXT,
+    state_note  TEXT,
+    state_at    TEXT,
+    job_id      TEXT,
+    created_at  TEXT,
+    extra       TEXT,
+    UNIQUE(source, source_id)
+);
+CREATE INDEX ix_events_ts        ON events(ts DESC);
+CREATE INDEX ix_events_device_ts ON events(device_id, ts);
+CREATE INDEX ix_events_site_ts   ON events(site_code, ts);
+CREATE INDEX ix_events_sev       ON events(severity, ts);
+CREATE INDEX ix_events_type      ON events(type_id);
+CREATE INDEX ix_events_state     ON events(state);
+CREATE INDEX ix_events_act_ts    ON events(actionable, ts DESC);
+CREATE INDEX ix_events_pair      ON events(pair_key, ts);
+CREATE VIRTUAL TABLE events_fts USING fts5(
+    name, message, device_name, content='events', content_rowid='id'
+)
+/* events_fts(name,message,device_name) */;
+CREATE TABLE IF NOT EXISTS 'events_fts_data'(id INTEGER PRIMARY KEY, block BLOB);
+CREATE TABLE IF NOT EXISTS 'events_fts_idx'(segid, term, pgno, PRIMARY KEY(segid, term)) WITHOUT ROWID;
+CREATE TABLE IF NOT EXISTS 'events_fts_docsize'(id INTEGER PRIMARY KEY, sz BLOB);
+CREATE TABLE IF NOT EXISTS 'events_fts_config'(k PRIMARY KEY, v) WITHOUT ROWID;
+CREATE TABLE tickets (
+    id                INTEGER PRIMARY KEY,
+    number            TEXT NOT NULL UNIQUE,
+    kind              TEXT,                -- INC / RITM / TASK / CHG / …
+    state             TEXT,
+    is_open           INTEGER NOT NULL DEFAULT 1,
+    priority          TEXT,
+    category          TEXT,
+    opened_by         TEXT,
+    assigned_to       TEXT,
+    assignment_group  TEXT,
+    created_at        TEXT,
+    updated_at        TEXT,
+    closed_at         TEXT,
+    resolve_minutes   INTEGER,
+    ts_source         TEXT,                -- file | events | random | none
+    short_description TEXT,
+    description       TEXT,
+    work_notes        TEXT,
+    work_notes_list   TEXT,
+    close_notes       TEXT,
+    cmdb_ci           TEXT,
+    resolution        TEXT,                -- best "what fixed it" summary
+    sites             TEXT,                -- JSON list of site codes found in the text
+    ips               TEXT,                -- JSON list of IPv4 addresses found in the text
+    devices           TEXT,                -- JSON list of device names found in the text
+    job_id            TEXT,
+    extra             TEXT
+);
+CREATE INDEX ix_tickets_created ON tickets(created_at DESC);
+CREATE INDEX ix_tickets_open    ON tickets(is_open);
+CREATE VIRTUAL TABLE tickets_fts USING fts5(
+    number, short_description, description, work_notes, close_notes,
+    content='tickets', content_rowid='id'
+)
+/* tickets_fts(number,short_description,description,work_notes,close_notes) */;
+CREATE TABLE IF NOT EXISTS 'tickets_fts_data'(id INTEGER PRIMARY KEY, block BLOB);
+CREATE TABLE IF NOT EXISTS 'tickets_fts_idx'(segid, term, pgno, PRIMARY KEY(segid, term)) WITHOUT ROWID;
+CREATE TABLE IF NOT EXISTS 'tickets_fts_docsize'(id INTEGER PRIMARY KEY, sz BLOB);
+CREATE TABLE IF NOT EXISTS 'tickets_fts_config'(k PRIMARY KEY, v) WITHOUT ROWID;
+CREATE TABLE ticket_links (
+    id         INTEGER PRIMARY KEY,
+    ticket_id  INTEGER NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
+    kind       TEXT NOT NULL,             -- ci | device | ip | site
+    value      TEXT NOT NULL,
+    device_id  INTEGER NOT NULL DEFAULT 0,
+    site_code  TEXT,
+    confidence REAL NOT NULL,
+    UNIQUE(ticket_id, kind, value, device_id)
+);
+CREATE INDEX ix_links_device ON ticket_links(device_id);
+CREATE INDEX ix_links_site   ON ticket_links(site_code);
+CREATE TABLE jobs (
+    id          TEXT PRIMARY KEY,
+    dataset     TEXT,                     -- events | tickets | unknown
+    filename    TEXT,
+    stored_path TEXT,
+    size_bytes  INTEGER,
+    status      TEXT NOT NULL,            -- staged | queued | running | succeeded | failed | interrupted | cancelled
+    progress    REAL NOT NULL DEFAULT 0,
+    stage       TEXT,
+    message     TEXT,
+    preview     TEXT,                     -- JSON: detected headers, sample rows, proposed mapping
+    mapping     TEXT,                     -- JSON: field → column index
+    options     TEXT,                     -- JSON: anchor date, etc.
+    stats       TEXT,                     -- JSON quality report
+    created_by  TEXT,
+    created_at  TEXT,
+    started_at  TEXT,
+    finished_at TEXT
+);
+CREATE TABLE job_rejects (
+    id      INTEGER PRIMARY KEY,
+    job_id  TEXT NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+    row_no  INTEGER,
+    reason  TEXT,
+    raw     TEXT
+);
+CREATE INDEX ix_rejects_job ON job_rejects(job_id);
+CREATE TABLE feedback (
+    id            INTEGER PRIMARY KEY,
+    event_id      INTEGER NOT NULL,
+    username      TEXT,
+    verdict       TEXT NOT NULL,          -- helpful | not_helpful
+    ticket_number TEXT,
+    note          TEXT,
+    created_at    TEXT
+);
+CREATE INDEX ix_feedback_event ON feedback(event_id);
+CREATE TABLE ai_insights (
+    cache_key   TEXT PRIMARY KEY,
+    event_id    INTEGER NOT NULL,
+    model       TEXT,
+    payload     TEXT NOT NULL,
+    latency_ms  INTEGER,
+    hits        INTEGER NOT NULL DEFAULT 0,
+    created_at  TEXT NOT NULL,
+    last_hit_at TEXT
+);
+CREATE INDEX ix_ai_event ON ai_insights(event_id);

@@ -6,6 +6,8 @@ import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import Alerts from './pages/Alerts';
 import AlertEventDetails from './pages/AlertEventDetails';
+import Sites from './pages/Sites';
+import Tickets from './pages/Tickets';
 import Admin from './pages/Admin';
 
 export default function App() {
@@ -19,6 +21,8 @@ export default function App() {
           <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/alerts" element={<Alerts />} />
           <Route path="/alerts/event/:eventId" element={<AlertEventDetails />} />
+          <Route path="/sites" element={<Sites />} />
+          <Route path="/tickets" element={<Tickets />} />
           <Route element={<Guard roles={['ADMIN']} />}>
             <Route path="/admin" element={<Admin />} />
           </Route>

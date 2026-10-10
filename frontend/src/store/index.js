@@ -2,10 +2,12 @@ import { create } from 'zustand';
 import {
   clearSession,
   getLogs,
+  getMe,
   getMetrics,
   logout as apiLogout,
   restore,
 } from '../services/api';
+import { clearCache, readCache, writeCache } from '../services/cache';
 
 const initialMe = restore();
 const ACKNOWLEDGED_DEVICES_KEY = 'naap.acknowledged-devices';
@@ -17,6 +19,16 @@ function restoreAcknowledgedDevices() {
   } catch {
     return [];
   }
+}
+
+// event_logs.current_status codes returned by /get-logs: 1 = Up, 0/2 = Down.
+// A null/unknown status falls back to the neutral "Open" label.
+function statusLabel(value) {
+  if (value === null || value === undefined || value === '') return 'Open';
+  const code = Number(value);
+  if (code === 1) return 'Up';
+  if (code === 0 || code === 2) return 'Down';
+  return 'Open';
 }
 
 function normalizeLog(log) {
@@ -39,14 +51,14 @@ function normalizeLog(log) {
       id: log.device_id,
       name: log.device_name || `Device ${log.device_id}`,
       ip: log.ip_address || '',
-      site: log.site || '',
+      site: log.site_code || log.site || '',
       reg: log.region || '',
     },
     // Keep the backend's ticket priority label (for example, P1) intact instead
     // of replacing it with a friendly severity bucket such as Critical.
     sev: String(log.priority ?? log.severity ?? log.severity_level ?? 'Unknown'),
     msg: log.message || log.event_type_name || 'Network event',
-    st: log.state || 'Open',
+    st: log.state || statusLabel(log.current_status),
     who: log.assigned_to || 'N/A',
     event_type_id: log.event_type_id,
   };
@@ -75,6 +87,25 @@ export const useStore = create((set) => ({
   toast: '',
 
   setMe: (me) => set({ me }),
+
+  // Revalidate the cached session against GET /auth/me.
+  refreshMe: async () => {
+    try {
+      const user = await getMe();
+      set((state) => (state.me
+        ? {
+            me: {
+              ...state.me,
+              name: user.username || state.me.name,
+              username: user.username || state.me.username,
+              role: String(user.role || '').toUpperCase() === 'ADMIN' ? 'ADMIN' : 'ANALYST',
+            },
+          }
+        : {}));
+    } catch {
+      // Keep the cached session; a 401 is handled by the request layer.
+    }
+  },
   acknowledgeDevice: (deviceId) => set((state) => {
     const acknowledgedDeviceIds = [...new Set([...state.acknowledgedDeviceIds, String(deviceId)])];
     localStorage.setItem(ACKNOWLEDGED_DEVICES_KEY, JSON.stringify(acknowledgedDeviceIds));
@@ -89,6 +120,7 @@ export const useStore = create((set) => ({
   logout: async () => {
     dashboardRequestId += 1;
     const pendingLogout = apiLogout();
+    clearCache();
     set({ me: null, metrics: null, alerts: [], error: '' });
 
     try {
@@ -103,23 +135,37 @@ export const useStore = create((set) => ({
     setTimeout(() => set({ toast: '' }), 2500);
   },
 
-  loadDashboard: (params = {}) => {
+  loadDashboard: async (params = {}) => {
     const requestId = ++dashboardRequestId;
     set({ loadingMetrics: true, error: '' });
-    return getMetrics(params).then((metrics) => {
-      if (requestId === dashboardRequestId) set({ metrics, loadingMetrics: false });
+    const cacheKey = `metrics.${JSON.stringify(params)}`;
+    const cached = readCache(cacheKey);
+    if (cached) set({ metrics: cached, loadingMetrics: false });
+    try {
+      const metrics = await getMetrics(params);
+      writeCache(cacheKey, metrics, 120000);
+      if (requestId === dashboardRequestId) {
+        set({ metrics, loadingMetrics: false });
+      }
       return metrics;
-    }).catch((error) => {
-      if (requestId === dashboardRequestId) set({ loadingMetrics: false, error: error.message });
+    } catch (error) {
+      if (requestId === dashboardRequestId) {
+        set({ loadingMetrics: false, error: error.message });
+      }
       throw error;
-    });
+    }
   },
 
   loadLogs: async (params = {}) => {
     set({ loadingLogs: true, error: '' });
+    const query = { page: 1, page_size: 50, ...params };
+    const cacheKey = `logs.${JSON.stringify(query)}`;
+    const cached = readCache(cacheKey);
+    if (cached) set({ ...normalizeLogs(cached, 50), loadingLogs: false });
 
     try {
-      const result = await getLogs({ page: 1, page_size: 50, ...params });
+      const result = await getLogs(query);
+      writeCache(cacheKey, result, 120000);
       set({
         ...normalizeLogs(result, 50),
         loadingLogs: false,

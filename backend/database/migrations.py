@@ -47,6 +47,9 @@ CREATE TABLE IF NOT EXISTS activity_logs (
     ip_address      TEXT,
     request_body    TEXT,                          -- JSON blob, passwords sanitized
     response_status INTEGER,
+    user_agent      TEXT,                          -- captured by the activity logger
+    duration_ms     REAL,                          -- handler latency
+    target_resource TEXT,                          -- resource parsed from the path
     created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
 
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
@@ -60,6 +63,13 @@ CREATE INDEX IF NOT EXISTS idx_activity_user_id  ON activity_logs(user_id);
 CREATE_ACTIVITY_LOGS_IDX_TIME = """
 CREATE INDEX IF NOT EXISTS idx_activity_created ON activity_logs(created_at);
 """
+
+# Columns added after the original activity_logs schema shipped.
+_ACTIVITY_LOG_COLUMNS: tuple[tuple[str, str], ...] = (
+    ("user_agent", "TEXT"),
+    ("duration_ms", "REAL"),
+    ("target_resource", "TEXT"),
+)
 
 CREATE_INGEST_JOBS_TABLE = """
 CREATE TABLE IF NOT EXISTS ingest_jobs (
@@ -141,6 +151,20 @@ ALL_MIGRATIONS: list[tuple[str, str]] = [
 ]
 
 
+def _migrate_activity_log_columns(conn: sqlite3.Connection) -> None:
+    """Add activity_logs columns that post-date the original schema.
+
+    ``CREATE TABLE IF NOT EXISTS`` never alters an existing table, so databases
+    created before these columns shipped would otherwise reject every INSERT
+    issued by ``create_activity_log()`` — silently losing all audit records.
+    """
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(activity_logs)")}
+    for name, ddl_type in _ACTIVITY_LOG_COLUMNS:
+        if name not in columns:
+            conn.execute(f"ALTER TABLE activity_logs ADD COLUMN {name} {ddl_type}")
+            logger.debug("Added activity_logs.%s column", name)
+
+
 def _migrate_ticket_solution_summaries(conn: sqlite3.Connection) -> None:
     """Upgrade event-type summaries while preserving the original table."""
     table = conn.execute(
@@ -214,6 +238,13 @@ async def run_migrations() -> None:
                 conn.close()
                 logger.error("Migration FAILED [%s]: %s", name, exc)
                 raise
+        try:
+            _migrate_activity_log_columns(conn)
+            logger.debug("Migration OK: activity_logs extended columns")
+        except Exception as exc:
+            conn.close()
+            logger.error("Migration FAILED [activity_logs columns]: %s", exc)
+            raise
         try:
             _migrate_ticket_solution_summaries(conn)
             logger.debug("Migration OK: ticket_solution_summaries event key")

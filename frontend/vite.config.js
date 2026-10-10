@@ -1,5 +1,7 @@
 import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
+import tailwindcss from '@tailwindcss/vite'
+
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
@@ -18,16 +20,17 @@ export default defineConfig(({ mode }) => {
   });
 
   return {
-    plugins: [react()],
+    plugins: [react(), tailwindcss(),],
     server: {
       proxy: {
-        '/auth': backendProxy(),
-        '/get-metrics': backendProxy(),
-        '/get-logs': backendProxy(),
-        '/simulate/logs': backendProxy(),
-        '/error-info': backendProxy(),
-        '/internal': backendProxy(),
-        '/admin': backendProxy(),
+        // The dev server also serves the SPA, so every backend path is
+        // namespaced under /api and rewritten before it is forwarded. Without
+        // this, API prefixes collide with frontend routes (/admin, /sites,
+        // /tickets) and newer endpoints simply have no proxy at all.
+        '/api': {
+          ...backendProxy(),
+          rewrite: (path) => path.replace(/^\/api/, ''),
+        },
       },
     },
   };

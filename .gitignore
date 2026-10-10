@@ -11,3 +11,6 @@ __pycache__
 services/__pycache__
 
 /node_modules
+nocturne
+noc_automation*
+.freebuff

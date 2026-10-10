@@ -1,15 +1,10 @@
-import logo from '../assets/logo.png';
-import whiteLogo from '../assets/logo-white.png';
+import logo from "../assets/logo.png";
+import whiteLogo from "../assets/logo-white.png";
 
-export default function Logo({ h = 26, white = false }) {
-  if (white) {
-    return <img src={whiteLogo} height={h} alt="Ferguson" />;
-  }
-
-  return (
-    <>
-      <img className="lgl" src={logo} height={h} alt="Ferguson" />
-      <img className="lgd" src={whiteLogo} height={h} alt="Ferguson" />
-    </>
-  );
+/**
+ * Brand wordmark. Renders the colour logo on light surfaces and the white
+ * logo on the navy rail / dark hero panels.
+ */
+export default function Logo({ className = "h-7 w-auto", white = false, alt = "Ferguson" }) {
+  return <img src={white ? whiteLogo : logo} alt={alt} className={className} />;
 }

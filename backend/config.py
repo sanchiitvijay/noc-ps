@@ -50,8 +50,7 @@ class Settings(BaseSettings):
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
 
     # ── LLM / Gemini ──────────────────────────────────────────────────────────
-    
-
+    GEMINI_API_KEY: str = ""  # Set to enable Gemini as the primary LLM provider
 
     # ── LLM / Groq fallback ───────────────────────────────────────────────────
     GROQ_API_KEY: str = ""  # Set to enable Groq as Gemini fallback (llama-3.3-70b-versatile)

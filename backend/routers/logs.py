@@ -38,7 +38,8 @@ async def get_logs(
     current_user: Annotated[dict, Depends(get_current_user)],
     conn: aiosqlite.Connection = Depends(get_connection),
     event_id: int | None = Query(default=None, description="Filter by event ID"),
-    device_id: str | None = Query(default=None, description="Filter by device ID"),
+    device_id: str | None = Query(default=None, description="Filter by device ID (partial match on id/device name)"),
+    ip_address: str | None = Query(default=None, description="Filter by device IP address (partial match)"),
     event_type_id: int | None = Query(default=None, description="Filter by event type ID"),
     event_type_name: str | None = Query(default=None, description="Filter by event type name"),
     severity: str | None = Query(
@@ -51,7 +52,7 @@ async def get_logs(
     ),
     search: str | None = Query(
         default=None,
-        description="Text search in all type error fields except description",
+        description="Text search in event type name, message, raw detail, device name, IP or site code",
     ),
     page: int = Query(default=1, ge=1, description="Page number (1-indexed)"),
     page_size: int = Query(
@@ -71,6 +72,7 @@ async def get_logs(
         conn: Injected database connection.
         event_id: Optional event ID filter.
         device_id: Optional device filter.
+        ip_address: Optional device IP filter.
         event_type_id: Optional event type filter.
         severity: Optional severity level filter.
         category: Optional category filter.
@@ -89,6 +91,7 @@ async def get_logs(
             conn,
             event_id=event_id,
             device_id=device_id,
+            ip_address=ip_address,
             event_type_id=event_type_id,
             event_type_name=event_type_name,
             severity=severity,

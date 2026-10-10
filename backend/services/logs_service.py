@@ -23,6 +23,7 @@ async def get_event_logs(
     conn: aiosqlite.Connection,
     event_id: int | None = None,
     device_id: str | None = None,
+    ip_address: str | None = None,
     event_type_id: int | None = None,
     event_type_name: str | None = None,
     severity: str | None = None,
@@ -38,9 +39,22 @@ async def get_event_logs(
         conditions.append("event_logs.event_id = ?")
         params.append(event_id)
 
-    if device_id is not None:
-        conditions.append("event_logs.device_id = ?")
-        params.append(device_id)
+    if device_id not in (None, ""):
+        # Device IDs in this dataset are non-numeric strings (device names/"
+        # IDs" from source CSVs), so support partial matches instead of an
+        # exact compare which only ever worked for integer PKs.
+        conditions.append(
+            "(event_logs.device_id LIKE ? OR event_logs.device_id IN ("
+            "SELECT device_id FROM devices WHERE CAST(device_id AS TEXT) LIKE ?))"
+        )
+        like = f"%{device_id}%"
+        params.extend([like, like])
+
+    if ip_address not in (None, ""):
+        conditions.append(
+            "event_logs.device_id IN (SELECT device_id FROM devices WHERE ip_address LIKE ?)"
+        )
+        params.append(f"%{ip_address}%")
 
     if event_type_id is not None:
         conditions.append("event_logs.event_type_id = ?")
@@ -79,18 +93,21 @@ async def get_event_logs(
             return {"data": [], "meta": paginate(0, page, page_size)}
 
     if search:
-        # Search all text fields except message (description)
-        # We can search event_type_name, raw_detail, or device attributes via subquery
+        # Search every text surface of the event row — the event type name, the
+        # raw detail, the free-text message itself, and the linked device's
+        # name / IP / site — so users can query any string they see in the
+        # console UI (including message text).
         conditions.append("""(
             event_logs.event_type_name LIKE ? OR 
             event_logs.raw_detail LIKE ? OR
+            event_logs.message LIKE ? OR
             event_logs.device_id IN (
                 SELECT device_id FROM devices 
                 WHERE device_name LIKE ? OR ip_address LIKE ? OR site_code LIKE ?
             )
         )""")
         like_term = f"%{search}%"
-        params.extend([like_term, like_term, like_term, like_term, like_term])
+        params.extend([like_term, like_term, like_term, like_term, like_term, like_term])
 
     where_clause = ("WHERE " + " AND ".join(conditions)) if conditions else ""
 

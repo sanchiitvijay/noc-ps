@@ -21,3 +21,6 @@ data/legacy_dbs/
 .DS_Store
 *.pyc
 .freebuff
+*.pptx
+scripts/generate_presentation.py
+docs/PRESENTATION_GUIDE.md

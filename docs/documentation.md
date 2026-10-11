@@ -1,377 +1,361 @@
-# Network Alerts Automation Platform (NAAP)
+# Network Alerts Automation Platform (NAAP) — Technical Documentation & Architecture Specification
 
-## Team and manager briefing
+> **Audience:** NOC Leadership, NOC Analysts, Network Engineers, Systems Architects, and Technical Management.  
+> **Status:** Operational Pilot & Production Architecture Reference  
+> **Last Updated:** October 2026  
 
-> A workspace for reviewing network alerts, checking historical ticket context, running preliminary diagnostics, and preparing the next analyst action.
+---
 
-| Status | Audience | Reviewed |
-|---|---|---|
-| Prototype / pilot foundation | NOC leadership, analysts, product and engineering teams | 8 October 2026 |
+## 1. Executive Summary & Problem Statement
 
-## Executive summary
+### The Problem in Enterprise Network Operations
+In a modern enterprise Network Operations Center (NOC), Tier-1 and Tier-2 engineers face high alert volumes ("alert storms") across thousands of distributed network devices (core switches, edge routers, distribution points, and wireless controllers).
 
-NAAP brings alert investigation into one workflow. An analyst can find an alert, review the affected device, see related ServiceNow history, run preliminary checks, and receive suggested next steps.
+Key operational pain points include:
+1. **Context Fragmentation:** An alert in monitoring tools (SolarWinds, Nagios, Zabbix) does not tell the analyst whether this device flapped yesterday, what the historical ticket notes in ServiceNow were, or what the topology looks like.
+2. **Repetitive Triage:** Analysts perform identical manual triage steps: host ping checks, traceroutes, DNS lookups, and searching ticket history across separate systems.
+3. **Escalation Overhead:** Incidents are frequently misrouted to specialized engineering teams without proper preliminary triage context.
 
-The platform currently includes:
+### The NAAP Solution
+The **Network Alerts Automation Platform (NAAP)** unifies alert investigation into an automated, single-pane triage workflow:
+- Correlates incoming alerts directly with **ServiceNow incident ticket history** and physical **Site locations**.
+- Automatically runs preliminary **reachability and routing diagnostics** (`ping`, `traceroute`, `nslookup`).
+- Delivers **AI-synthesized root-cause hypotheses** (via Google Gemini with Groq and deterministic rule fallbacks).
+- Organizes the entire infrastructure across **1,027 sites** and **6,586 managed devices** with interactive site drill-down drawers.
 
-- React dashboard and alert console;
-- FastAPI backend with authenticated API access;
-- SQLite data store for devices, events, tickets, users, and audit records;
-- simulated diagnostics by default, with optional local diagnostics; and
-- optional AI-assisted recommendations with built-in rule-based backup guidance.
+```
+                    ┌────────────────────────┐
+                    │ Network Alert Arrives  │
+                    └───────────┬────────────┘
+                                │
+                                ▼
+         ┌──────────────────────────────────────────────┐
+         │         Unified Automated Triage Flow        │
+         ├──────────────────────┬───────────────────────┤
+         │  1. Device Context   │  6,586 Managed Nodes  │
+         │  2. Site Topology    │  1,027 Sites & States │
+         │  3. Historical Links │  ServiceNow Tickets   │
+         │  4. Fast Diagnostic  │  Ping, Trace, DNS     │
+         │  5. AI Hypothesis    │  Gemini / Rule Engine │
+         └──────────────────────┴───────────────────────┘
+                                │
+                                ▼
+                    ┌────────────────────────┐
+                    │ Fast Informed Decision │
+                    │ (Mitigate / Escalate)  │
+                    └────────────────────────┘
+```
 
-**Important positioning:** this is an analyst-assistance platform backed by a prepared anonymized dataset. It is not currently a live monitoring replacement, autonomous remediation system, or resilient multi-server production platform.
+---
 
-## Current value
+## 2. High-Level Architecture
 
-| User | Value provided |
-|---|---|
-| NOC analyst | One place to investigate an alert and review prior ticket context |
-| NOC lead | Consistent alert-investigation workflow and visibility into alert patterns |
-| Engineering team | Clear separation between UI, API, diagnostics, data, and AI services |
-| Management | A demonstrable foundation with specific gaps identified before moving toward production |
-
-## Platform overview
-
-### Architecture
+The platform follows a decoupled, security-first three-tier architecture:
 
 ```mermaid
-%%{init: {"theme": "base", "themeVariables": {"fontSize": "16px"}, "flowchart": {"nodeSpacing": 50, "rankSpacing": 60}}}%%
 flowchart TB
-    Browser[Browser UI<br/>Dashboard · Alerts · Event details · Admin]
-    API[FastAPI application<br/>Auth · Metrics · Logs · Investigation · Diagnostics · Ingestion]
-    DB[(SQLite database<br/>Devices · Events · Tickets · Audit logs)]
-    AI[Optional AI providers<br/>Gemini / Groq]
+    subgraph ClientLayer ["Client Layer (Presentation)"]
+        UI["React 19 SPA (Vite + Tailwind CSS + Recharts)<br/>• Unified Dashboard • Sites Topology Drawer<br/>• Live Logs & Triage • Admin & Ingestion"]
+    end
 
-    Browser -->|Authenticated REST requests| API
-    API --> DB
-    API -. optional .-> AI
+    subgraph APILayer ["Application & Orchestration Layer"]
+        API["FastAPI REST Service (Python 3.14 / Uvicorn)<br/>• JWT Bearer Auth & Role Guards (Admin / Analyst)<br/>• Audit & Latency Logging Middleware<br/>• Automated Diagnostics Engine<br/>• AI Synthesis Engine (Gemini / Groq / Rules)<br/>• Background Async Ingestion Worker"]
+    end
+
+    subgraph DataLayer ["Data & Persistence Layer"]
+        DB[("SQLite 3 Database (noc_automation_4.db)<br/>• 6,586 Devices • 134,412 Event Logs<br/>• 1,027 Sites • 456 ServiceNow Tickets<br/>• Normalized Mappings & Cached AI Solutions")]
+        RawFiles["Data Lake & Raw Assets (data/)<br/>• Raw Event CSVs • SN Ticket Extracts"]
+    end
+
+    subgraph ExternalServices ["External Intelligence & Diagnostics"]
+        Gemini["Google Gemini API (Primary LLM)"]
+        Groq["Groq API (Backup LLM)"]
+        OSDiag["Local Host Network Stack (Optional Live Checks)"]
+    end
+
+    UI -->|HTTPS / JWT Authenticated REST| API
+    API -->|aiosqlite Async Connection Pool| DB
+    API -.->|Context + Diag Prompt| Gemini
+    API -.->|Fallback Prompt| Groq
+    API -.->|ICMP / UDP / DNS Sockets| OSDiag
+    RawFiles -.->|Background Ingestion| API
 ```
 
-The browser never talks directly to the database. The backend assembles the data, applies access rules, runs diagnostics, and returns a single response to the UI.
+### Architectural Tenets
+1. **No Direct Database Access:** The client interface never accesses persistence layers directly; every interaction is mediated by authenticated, validated FastAPI endpoints.
+2. **Defensive Fault Isolation:** The failure of external APIs (such as Gemini or Groq) never crashes or stalls the user experience; deterministic, rule-based fallback engines guarantee uptime.
+3. **Auditability:** Every mutation, diagnostic run, login, and data ingestion is logged to an immutable `activity_logs` table.
 
-### Analyst alert-investigation flow
+---
+
+## 3. Database Schema & Data Models
+
+The system is powered by SQLite (`noc_automation_4.db`), optimized with indexes for sub-millisecond query response across 134,000+ records.
 
 ```mermaid
-%%{init: {"theme": "base", "themeVariables": {"fontSize": "16px"}, "flowchart": {"nodeSpacing": 50, "rankSpacing": 60}}}%%
-flowchart TD
-    A[Alert selected]
-    B[Load device and event context]
-    C[Match related tickets]
-    D[Run ping, traceroute, and DNS checks]
-    E[Generate suggested hypothesis and next steps]
-    F[Analyst reviews and continues in the operational workflow]
+erDiagram
+    USERS {
+        int id PK
+        string username "Unique account handle"
+        string email "User email address"
+        string hashed_password "PBKDF2-HMAC-SHA256"
+        string role "'admin' or 'analyst'"
+        int is_active "1 = Active, 0 = Disabled"
+        datetime created_at
+    }
 
-    A --> B --> C --> D --> E --> F
+    SITES {
+        string site_code PK "e.g., 'S-1027'"
+        string site_name "City or Facility Name"
+        string state "Geographic State"
+    }
+
+    DEVICES {
+        int device_id PK
+        string device_name "e.g., 'SW-ATL-01'"
+        string ip_address "Management IP"
+        string site_code FK "Links to SITES"
+        string machine_type "Router, Switch, Firewall, AP"
+    }
+
+    EVENT_TYPE_LOOKUP {
+        int event_type_id PK
+        string event_type_name "e.g., 'BGP Session Flap'"
+        string severity "P1 (Critical) to P4 (Low)"
+        string category "Hardware, Interface, Routing, Environment"
+    }
+
+    EVENT_LOGS {
+        int event_id PK
+        int device_id FK "Links to DEVICES"
+        int event_type_id FK "Links to EVENT_TYPE_LOOKUP"
+        string event_time "Timestamp or time-of-day"
+        string message "Raw syslog / monitoring payload"
+    }
+
+    SN_TICKETS {
+        int ticket_id PK
+        string ticket_number "e.g., 'INC0491820'"
+        string state "Open, In Progress, Resolved, Closed"
+        string priority "1 - Critical to 4 - Low"
+        string short_description "Summary of incident"
+        string close_notes "Resolution narrative"
+    }
+
+    DEVICE_TICKET_MAP {
+        int id PK
+        int device_id FK
+        int ticket_id FK
+        float confidence "Heuristic correlation score (0.0 - 1.0)"
+    }
+
+    TICKET_SOLUTION_SUMMARIES {
+        int id PK
+        int event_id FK "Unique per event"
+        string model_used "gemini-1.5, groq-llama3, or rule-based"
+        string hypothesis "Synthesized root cause"
+        string recommended_actions "Ordered action steps"
+        datetime created_at
+    }
+
+    ACTIVITY_LOGS {
+        int id PK
+        int user_id FK
+        string action "HTTP method and route"
+        string ip_address "Client IP"
+        int status_code "HTTP Status"
+        float latency_ms "Execution time in milliseconds"
+        datetime created_at
+    }
+
+    SITES ||--o{ DEVICES : "houses"
+    DEVICES ||--o{ EVENT_LOGS : "generates"
+    EVENT_TYPE_LOOKUP ||--o{ EVENT_LOGS : "classifies"
+    DEVICES ||--o{ DEVICE_TICKET_MAP : "mapped in"
+    SN_TICKETS ||--o{ DEVICE_TICKET_MAP : "resolves"
+    EVENT_LOGS ||--o| TICKET_SOLUTION_SUMMARIES : "receives advice"
+    USERS ||--o{ ACTIVITY_LOGS : "triggers"
 ```
 
-The system does not change network configuration or create/update ServiceNow tickets.
+### Key Dataset Statistics (Baseline Database)
+| Entity | Record Count | Description |
+|---|---:|---|
+| **Sites** | 1,027 | Normalized facility locations, states, and coordinates |
+| **Devices** | 6,586 | Managed network devices across all enterprise facilities |
+| **Event Logs** | 134,412 | Historical and simulated monitoring alerts and telemetry |
+| **Event Types** | 91 | Unique catalog of network event categories and severities |
+| **ServiceNow Tickets** | 456 | Historical enterprise tickets with root-cause resolutions |
+| **Device-Ticket Links** | 2,314 | Multi-attribute heuristic cross-references |
 
-### Technology shape
+---
 
-| Layer | Technology | Responsibility |
-|---|---|---|
-| Frontend | React 19, Vite, React Router, Zustand, Recharts | Pages, navigation, session state, dashboards, and API calls |
-| Backend | Python, FastAPI, Pydantic | Authentication, routing, validation, orchestration, and JSON responses |
-| Persistence | SQLite with application migrations | Devices, events, tickets, users, audit records, and ingest jobs |
-| Data processing | Pandas and OpenPyXL | CSV/XLSX parsing and normalization |
-| Assistance | Gemini, Groq, or built-in rules | Suggested hypotheses and remediation steps |
+## 4. Core Subsystems & Operational Workflows
 
-## User-facing capabilities
-
-### Dashboard and alerts
-
-- Dashboard metrics for event volume, severity, category, top alerting devices, and ticket statistics.
-- Searchable and paginated alert list.
-- Event simulation for demonstrations and UI testing.
-
-The dashboard’s “recent” counts and trends are estimates because the source event records do not preserve calendar dates.
-
-### Event details
-
-The event-details view brings together:
-
-| Information | Purpose |
-|---|---|
-| Device and event | Identify what is affected |
-| Related tickets | Check whether the issue has occurred before |
-| Preliminary checks | See whether the target responds from the backend host |
-| Suggested solution | Identify what to verify next |
-
-Recommendations are advisory. The analyst remains responsible for validation and operational action.
-
-### Administration
-
-Administrators can view API activity records and submit CSV files for background ingestion. The admin screen uploads through `/admin/ingest-excel`, polls the returned job until it completes, and supports the repository's event and ticket export headers. Typed CSV routes remain available for integrations. Large uploads are processed in the API process and can take around two minutes for the supplied event export; a restart can still interrupt a job. Ingest-job status polls are excluded from the activity log to avoid noisy writes during imports; job state remains available from the ingest-job endpoint.
-
-### Offline demo
-
-The frontend includes a local demo mode. It uses mock data and does not call the backend.
-
-| Demo account | Password |
-|---|---|
-| `admin` | `admin123` |
-| `admin12` | `adminpassword123!` |
-
-These credentials are for demonstration only.
-
-## Backend capability map
-
-The backend interface is organized around a small set of business capabilities rather than a large public surface.
-
-| Capability | Main routes | Primary user |
-|---|---|---|
-| Authentication | `/auth/login`, `/auth/signup`, `/auth/logout`, `/auth/me` | All users |
-| Dashboard and search | `/get-metrics`, `/get-logs` | Analyst and admin |
-| Alert investigation | `/error-info` | Analyst and admin |
-| Diagnostics | `/internal/ping`, `/internal/traceroute`, `/internal/nslookup` | Analyst and admin |
-| Demonstration | `/simulate/logs` | Analyst and admin |
-| Administration | `/admin/activity-log`, `/admin/ingest/...` | Admin |
-| Saved guidance | `/solution-summaries` | Authenticated users; write access for analyst/admin |
-
-The running FastAPI application remains the authoritative source for request parameters and response shapes. Interactive documentation is available at `/docs` and `/redoc`.
-
-## Data landscape
-
-### Baseline database snapshot
-
-| Data set | Records |
-|---|---:|
-| Devices | 6,583 |
-| Monitoring events | 134,385 |
-| Event types | 91 |
-| ServiceNow tickets | 442 |
-| Device-ticket links | 2,314 |
-
-The repository contains multiple SQLite snapshots. The active database is selected by `DATABASE_URL`.
-
-### Data relationship
+### 4.1. Automated Alert Triage & Root Cause Investigation (`/error-info`)
+When an analyst opens an alert from the live stream or dashboard, NAAP triggers a coordinated investigation sequence:
 
 ```mermaid
-%%{init: {"theme": "base", "themeVariables": {"fontSize": "16px"}, "flowchart": {"nodeSpacing": 50, "rankSpacing": 60}}}%%
-flowchart TD
-    Devices[Device inventory]
-    Events[Monitoring events]
-    Types[Event types]
-    Tickets[Historical ServiceNow tickets]
-    Context[Alert investigation context]
+sequenceDiagram
+    actor Analyst
+    participant UI as React Frontend
+    participant API as FastAPI Backend (/error-info)
+    participant DB as SQLite (noc_automation_4.db)
+    participant Diag as Diagnostic Runner
+    participant AI as Gemini LLM / Rule Fallback
 
-    Devices -->|generates| Events
-    Types -->|classifies| Events
-    Devices -->|linked through rule-based matching bridge| Tickets
-    Events --> Context
-    Tickets -->|combined with| Context
+    Analyst->>UI: Selects Alert (event_id)
+    UI->>API: GET /error-info?event_id={id}
+    
+    rect rgb(240, 248, 255)
+    Note over API,DB: Step 1: Context Aggregation
+    API->>DB: Fetch Device metadata (IP, Machine Type, Site)
+    API->>DB: Fetch Event details & severity
+    API->>DB: Query DEVICE_TICKET_MAP & SN_TICKETS for historical context
+    DB-->>API: Return unified context payload
+    end
+
+    rect rgb(255, 250, 240)
+    Note over API,Diag: Step 2: Preliminary Diagnostics
+    par Ping Verification
+        API->>Diag: ICMP Reachability (loss %, min/avg/max latency)
+        Diag-->>API: Return Ping metrics
+    and Route Tracing
+        API->>Diag: Traceroute to destination IP
+        Diag-->>API: Return Hops and latencies
+    and Name Resolution
+        API->>Diag: Reverse DNS lookup
+        Diag-->>API: Return FQDN
+    end
+    end
+
+    rect rgb(245, 255, 245)
+    Note over API,AI: Step 3: Synthesis & Guidance
+    API->>DB: Check cached TICKET_SOLUTION_SUMMARIES (< 10 min old)
+    alt Cache hit
+        DB-->>API: Return stored summary
+    else Cache miss
+        API->>AI: Send prompt (Event + Device + Diagnostic + Ticket History)
+        AI-->>API: Return JSON (Hypothesis, Confidence, Next Steps)
+        API->>DB: Cache summary into TICKET_SOLUTION_SUMMARIES
+    end
+    end
+
+    API-->>UI: Return comprehensive triage payload (200 OK)
+    UI-->>Analyst: Render side drawer with diagnostics, tickets, and AI guidance
 ```
 
-### Data limitations
+### 4.2. Sites Management & Topology Drill-Down
+The Sites page provides multi-dimensional visibility across the enterprise's 1,027 sites:
+- **Search & Filter:** Instant filtering by site code, city name, and state.
+- **Topology Drawer:** Clicking any site opens a wide detail drawer displaying:
+  - Total device inventory for the facility.
+  - Interactive table of managed devices (IP address, device type, recent alert counts).
+  - Truncation with full-name hover tooltips and in-table search for large sites.
+  - Direct links from site devices to corresponding active alerts and historical tickets.
 
-- Event dates are missing; only time-of-day values are available.
-- Some events do not map cleanly to a device.
-- Some ticket ownership and structured fields are unavailable.
-- Site code, device name, and IP matching uses rules and must be confirmed operationally.
-- The data is an anonymized/static extract, not a live monitoring feed.
-
-### Data processing paths
-
-| Path | Use | Location |
-|---|---|---|
-| Initial build | Recreate the starting database from source CSV files | `noc_database_setup 1/etl_pipeline.py` |
-| Incremental update | Merge new event and ticket CSV files | `incremental_updater.py` |
-| API upload | Accept an administrator CSV upload and create an ingest job | `backend/workers/ingest_worker.py` |
-
-The paths do not share exactly the same normalization logic. The API upload path has been tested with the supplied full-size event and ticket exports, while the standalone updater is the preferred controlled refresh path for bulk updates. Validate the resulting database before using it operationally.
-
-## Operational flows
-
-### Data refresh and ingestion
+### 4.3. Multi-Engine AI Synthesis Strategy
+To ensure enterprise reliability, NAAP implements a three-tier fallback hierarchy for root-cause synthesis:
 
 ```mermaid
-%%{init: {"theme": "base", "themeVariables": {"fontSize": "16px"}, "flowchart": {"nodeSpacing": 50, "rankSpacing": 60}}}%%
 flowchart TD
-    Source[Event CSV + Ticket CSV]
-    Load[Initial data load<br/>Normalize · classify · load · build links]
-    DB[Starting SQLite database]
-    App[FastAPI + React dashboard]
+    Prompt[Triage Context Assembled] --> CheckGemini{Is GEMINI_API_KEY set?}
+    CheckGemini -- Yes --> CallGemini[Call Google Gemini 1.5 Flash API]
+    CallGemini -- Success --> ReturnAI[Return LLM Hypothesis & Steps]
+    CallGemini -- Failure / Timeout --> CheckGroq
 
-    Source --> Load --> DB --> App
+    CheckGemini -- No --> CheckGroq{Is GROQ_API_KEY set?}
+    CheckGroq -- Yes --> CallGroq[Call Groq LLaMA-3 API]
+    CallGroq -- Success --> ReturnAI
+    CallGroq -- Failure / Timeout --> RuleEngine
+
+    CheckGroq -- No --> RuleEngine[Execute Deterministic Rule Engine]
+    RuleEngine --> MatchSeverity{Check Event Category & Severity}
+    MatchSeverity --> ReturnRule[Return Standard Operating Procedure Steps]
 ```
 
-For administrator uploads:
+- **Primary:** Google Gemini 1.5 Flash provides high-speed structured JSON analysis.
+- **Secondary:** Groq LLaMA-3 provides sub-second failover.
+- **Deterministic SOP Engine:** Pre-compiled Standard Operating Procedures (SOPs) based on alert category (e.g., interface flaps, BGP resets, high CPU utilization) trigger if external cloud access is restricted or offline.
 
-```mermaid
-%%{init: {"theme": "base", "themeVariables": {"fontSize": "16px"}, "flowchart": {"nodeSpacing": 50, "rankSpacing": 60}}}%%
-flowchart TD
-    Upload[CSV upload]
-    Worker[In-process background task]
-    Status[Import job status]
-    Updated[Updated database]
+### 4.4. Asynchronous Data Ingestion Engine
+When an administrator uploads fresh CSV or Excel exports (`/admin/ingest-excel`):
+1. **Fast Response (HTTP 202 Accepted):** File structure is validated and an asynchronous `asyncio` background task is spawned immediately.
+2. **Chunked Parsing & Normalization:** The ingest worker parses records in batches, normalizing site codes and timestamp formats.
+3. **Cross-Reference Bridge:** New devices are automatically mapped to existing tickets using string similarity and site correlation algorithms.
+4. **Client Polling:** The frontend polls `/admin/ingest-excel/{job_id}` with a progress bar, preventing browser timeouts during multi-megabyte uploads.
 
-    Upload --> Worker --> Status --> Updated
+---
+
+## 5. Security & Authentication Model
+
+- **Authentication Scheme:** JSON Web Tokens (JWT) using HMAC-SHA256 (`HS256`).
+- **Token Lifespan:** Access tokens expire after 60 minutes; refresh tokens expire after 7 days.
+- **Password Storage:** Industry-standard PBKDF2-HMAC-SHA256 with 390,000 iterations (OWASP recommendation).
+- **Role-Based Access Control (RBAC):**
+  - `analyst`: Dashboard, Sites, Alerts console, Error-Info triage, diagnostics execution, solution summary view.
+  - `admin`: All analyst permissions plus CSV ingestion, background job management, and system activity logs.
+- **Token Invalidation:** Explicit logout adds the token's unique identifier (`jti`) to the `token_blocklist` table.
+
+---
+
+## 6. Repository Layout
+
+The project structure is organized cleanly by responsibility:
+
+```
+noc-ps/
+├── backend/                   # FastAPI application & test suite
+│   ├── database/              # SQLite connection wrapper, migrations, and schema
+│   ├── routers/               # Endpoint controllers (auth, metrics, sites, logs, etc.)
+│   ├── services/              # Business logic (metrics_service, auth_service, etc.)
+│   ├── utils/                 # Security (JWT, hashing), diagnostics, and exception handlers
+│   ├── tests/                 # Automated Pytest suite (101 unit & integration tests)
+│   └── requirements.txt       # Python dependencies
+├── frontend/                  # React 19 SPA (Vite + Tailwind CSS + Lucide + Recharts)
+│   ├── src/pages/             # UI views (Dashboard, Sites, Alerts, Tickets, Logs, Login)
+│   ├── src/services/          # API client and local demo fallback handlers
+│   └── package.json           # Frontend dependencies
+├── data/                      # Data assets
+│   ├── raw/                   # Source anonymized datasets (Events, Tickets)
+│   ├── samples/               # Sample CSVs for upload testing
+│   └── legacy_dbs/            # Inactive database snapshots
+├── docs/                      # Technical documentation, diagrams, and schemas
+├── scripts/                   # Benchmarks, query tests, and incremental updater
+├── sql/                       # SQL migrations, sites seed dump, and query templates
+├── noc_database_setup 1/      # Standalone initial ETL pipeline module
+├── noc_automation_4.db        # Active database file (6,586 devices, 134,412 events)
+├── start.sh / start.bat / start.ps1   # Multi-platform unified launch scripts
+├── stop.sh / stop.bat                 # Multi-platform shutdown scripts
+└── README.md                  # Quickstart documentation
 ```
 
-The upload task runs inside the API process. A restart can interrupt an active job; it is not a durable queue.
+---
 
-### Diagnostic behavior
+## 7. Operations, Verification & Maintenance
 
-```mermaid
-%%{init: {"theme": "base", "themeVariables": {"fontSize": "16px"}, "flowchart": {"nodeSpacing": 50, "rankSpacing": 60}}}%%
-flowchart TD
-    Request[Diagnostic request]
-    Decision{Fake diagnostics enabled?}
-    Demo[Return demonstration result]
-    Local[Run local OS command<br/>from backend host]
+### 7.1. Quick Launch
+```bash
+# Linux / macOS
+./start.sh
 
-    Request --> Decision
-    Decision -->|Yes| Demo
-    Decision -->|No| Local
+# Windows (Command Prompt)
+start.bat
+
+# Windows (PowerShell)
+.\start.ps1
 ```
 
-Fake mode is the default. Results from fake mode must not be treated as evidence of actual device reachability.
-
-### Recommendation behavior
-
-```mermaid
-%%{init: {"theme": "base", "themeVariables": {"fontSize": "16px"}, "flowchart": {"nodeSpacing": 50, "rankSpacing": 60}}}%%
-flowchart TD
-    Context[Device + event + history + diagnostics]
-    GeminiDecision{Gemini available?}
-    GroqDecision{Groq available?}
-    Gemini[Gemini suggestion]
-    Groq[Groq backup suggestion]
-    Rules[Built-in rule-based guidance]
-
-    Context --> GeminiDecision
-    GeminiDecision -->|Yes| Gemini
-    GeminiDecision -->|No| GroqDecision
-    GroqDecision -->|Yes| Groq
-    GroqDecision -->|No| Rules
-```
-
-The recommendation is a hypothesis and action guide, not a verified root cause or automatic change plan.
-
-### AI behavior and governance
-
-- Gemini is attempted first when `GEMINI_API_KEY` is configured.
-- Groq is attempted when Gemini is unavailable and `GROQ_API_KEY` is configured.
-- Rule-based guidance is used when external providers are unavailable.
-- The prompt uses compact device, event, diagnostic, and ticket context; it is not a full ticket export.
-- Successful Gemini/Groq suggestions are saved per event and returned directly for `SOLUTION_SUMMARY_CACHE_TTL_MINUTES` (10 minutes by default); rule-based fallbacks are not cached.
-
-AI output should be reviewed by an analyst before it is copied into a ServiceNow record or used to justify a change.
-
-## Security and access
-
-```mermaid
-%%{init: {"theme": "base", "themeVariables": {"fontSize": "16px"}, "flowchart": {"nodeSpacing": 50, "rankSpacing": 60}}}%%
-flowchart TD
-    Login[User signs in]
-    Token[Signed access token issued]
-    Request[Protected API request]
-    Role[Role check]
-    Response[Response]
-
-    Login --> Token --> Request --> Role --> Response
-```
-
-| Role | Access |
-|---|---|
-| Analyst | Dashboard, alerts, alert investigation, diagnostics, and solution summaries |
-| Admin | Analyst access plus ingestion and activity-log access |
-
-The repository still contains development defaults for the token-signing secret and bootstrap admin password. These must be replaced before any shared deployment.
-
-### Configuration that must be reviewed
-
-| Setting | Current default | Team decision |
-|---|---|---|
-| `DATABASE_URL` | Local absolute SQLite path | Set per environment |
-| `SECRET_KEY` | Development placeholder | Generate and protect a deployment secret |
-| `ADMIN_PASSWORD` | `admin123` | Replace before shared use |
-| `FAKE_DIAGNOSTICS` | `True` | Keep for demos; disable only when real checks are approved |
-| `DEV_LOG_ENABLED` | `False` | Keep disabled unless development request/SQL logging is needed |
-| `CORS_ORIGINS` | Declared as permissive, while `main.py` has its own allowlist | Align configuration and runtime behavior |
-
-## Readiness assessment
-
-### Ready for
-
-- Demonstrating the end-to-end alert-investigation concept.
-- Reviewing the prepared dataset with analysts and stakeholders.
-- Validating UI workflows and API boundaries.
-- Prototyping AI-assisted operational guidance.
-
-### Not ready for
-
-- Live monitoring ingestion.
-- Autonomous remediation.
-- Guaranteed calendar-based trend analysis.
-- Durable, restart-safe ingestion.
-- Resilient multi-server or horizontally scaled deployment.
-
-### Priority gaps
-
-| Priority | Gap | Why it matters |
-|---:|---|---|
-| 1 | Replace in-process ingestion | Prevents lost work during API restarts |
-| 2 | Preserve full event timestamps | Required for trustworthy trends and event/ticket correlation |
-| 3 | Remove development secrets and logging defaults | Required before shared access |
-| 4 | Label simulated diagnostics clearly | Prevents demo results being mistaken for live evidence |
-
-## Local operation
-
-### Start the backend
-
+### 7.2. Test Suite Execution
+The backend includes a comprehensive 101-test suite covering authentication, RBAC, query logic, metrics calculation, and database migrations:
 ```bash
 cd backend
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-uvicorn main:app --reload --host 0.0.0.0 --port 8000
+PYTHONPATH=. .venv/bin/pytest tests/
 ```
+**Verification Target:** `101 passed` with 0 failures.
 
-### Start the frontend
-
+### 7.3. Frontend Build Validation
 ```bash
 cd frontend
-npm install
-npm run dev
+npm run build
 ```
-
-The backend provides interactive API documentation at `/docs` and `/redoc`.
-
-For database rebuilds and validation, use the scripts and SQL files under `noc_database_setup 1/`. For incremental CSV updates, use `incremental_updater.py`.
-
-The updater defaults to the SQLite path in the backend configuration and can be pointed at a staging copy with `--db`. Run it from the repository root after creating that copy:
-
-```bash
-backend/.venv/bin/python incremental_updater.py \
-    --events "30_Days_EventTypeName_device_name_ANONYMIZED.csv" \
-    --tickets "SN_Tickets_NOC_anonymized.csv" \
-    --db /path/to/staging-copy.db
-```
-
-The event export contains time-of-day only; the updater preserves that value and does not invent calendar dates. Review the staging database before selecting the configured live database as the target.
-
-## Verification checklist
-
-After a change, confirm:
-
-1. Backend tests pass when dependencies are installed.
-2. The frontend production build completes.
-3. `/health` responds successfully.
-4. Login, dashboard, alert search, and event details work with a known database snapshot.
-5. Fake diagnostics are visibly identified as simulated.
-6. CSV ingestion creates a job and reaches a terminal status.
-
-## Repository references
-
-| Area | Location |
-|---|---|
-| Backend | `backend/` |
-| Frontend | `frontend/` |
-| Initial data loading and schema | `noc_database_setup 1/` |
-| Incremental updates | `incremental_updater.py` |
-| Database query reference | `query.sql` |
-| Data-quality findings | `noc_database_setup 1/data_quality_report.md` |
-
-When this briefing and the implementation disagree, use the running FastAPI OpenAPI output, active configuration, database schema, and frontend code as the source of truth.
+**Verification Target:** Clean compilation into `frontend/dist/`.

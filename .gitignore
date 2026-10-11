@@ -15,9 +15,7 @@ nocturne
 noc_automation*
 noc-automation*
 data/legacy_dbs/
-*.db
-*.db-journal
-*.db-wal
+
 .DS_Store
 *.pyc
 .freebuff

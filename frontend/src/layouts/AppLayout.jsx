@@ -159,7 +159,7 @@ export default function AppLayout() {
             )}
           </div>
 
-          <form onSubmit={handleTopSearch} className="relative hidden md:block">
+          {/* <form onSubmit={handleTopSearch} className="relative hidden md:block">
             <FaSearch className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-ink-3" />
             <input
               type="text"
@@ -179,7 +179,7 @@ export default function AppLayout() {
                 <FaTimes className="text-[13px]" />
               </button>
             )}
-          </form>
+          </form> */}
 
           <button
             onClick={toggleTheme}

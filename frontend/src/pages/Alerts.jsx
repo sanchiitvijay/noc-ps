@@ -235,6 +235,34 @@ export default function Alerts() {
               <option key={severity} value={severity}>{severity}</option>
             ))}
           </select>
+          
+          <input
+            type="text"
+            inputMode="numeric"
+            placeholder="Event ID"
+            aria-label="Filter by event ID"
+            value={filters.event_id}
+            onChange={(event) => updateFilter("event_id", event.target.value.replace(/\D/g, ""))}
+            className={fieldClass}
+          />
+          <input
+            type="text"
+            inputMode="text"
+            placeholder="Device ID"
+            aria-label="Filter by device ID"
+            value={filters.device_id}
+            onChange={(event) => updateFilter("device_id", event.target.value)}
+            className={fieldClass}
+          />
+          <input
+            type="text"
+            inputMode="decimal"
+            placeholder="IP address"
+            aria-label="Filter by IP address"
+            value={filters.ip_address}
+            onChange={(event) => updateFilter("ip_address", event.target.value)}
+            className={fieldClass}
+          />
           <div className="relative lg:col-span-2">
             <FaSearch className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-ink-3" />
             <input
@@ -254,33 +282,6 @@ export default function Alerts() {
               </button>
             )}
           </div>
-          <input
-            type="text"
-            inputMode="text"
-            placeholder="Device ID"
-            aria-label="Filter by device ID"
-            value={filters.device_id}
-            onChange={(event) => updateFilter("device_id", event.target.value)}
-            className={fieldClass}
-          />
-          <input
-            type="text"
-            inputMode="numeric"
-            placeholder="Event ID"
-            aria-label="Filter by event ID"
-            value={filters.event_id}
-            onChange={(event) => updateFilter("event_id", event.target.value.replace(/\D/g, ""))}
-            className={fieldClass}
-          />
-          <input
-            type="text"
-            inputMode="decimal"
-            placeholder="IP address"
-            aria-label="Filter by IP address"
-            value={filters.ip_address}
-            onChange={(event) => updateFilter("ip_address", event.target.value)}
-            className={fieldClass}
-          />
         </div>
 
         <div className="mt-3 flex flex-wrap items-center gap-3">

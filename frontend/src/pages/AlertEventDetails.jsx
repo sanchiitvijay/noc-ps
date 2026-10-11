@@ -3,10 +3,10 @@ import { Link, useParams } from "react-router-dom";
 import {
   FaArrowLeft, FaCopy, FaExternalLinkAlt, FaCheck, FaTimes, FaQuestion,
   FaServer, FaNetworkWired, FaHistory, FaTerminal, FaLightbulb, FaSpinner,
-  FaExclamationTriangle, FaSave, FaTrashAlt, FaPencilAlt,
+  FaExclamationTriangle, FaChevronDown,
 } from "react-icons/fa";
 import {
-  deleteSolutionSummary, getErrorInfo, getSolutionSummary, runDiagnostic, saveSolutionSummary,
+  getErrorInfo, runDiagnostic,
 } from "../services/api";
 import RelatedTickets from "../components/RelatedTickets";
 import Tag from "../components/Tag";
@@ -228,7 +228,9 @@ function LoadingSkeleton({ rows = 4 }) {
   );
 }
 
-function Panel({ icon, kicker, title, aside, children }) {
+function Panel({ icon, kicker, title, aside, collapsible = false, defaultOpen = true, children }) {
+  const [open, setOpen] = useState(defaultOpen);
+  const toggle = () => setOpen((value) => !value);
   return (
     <section className="rounded-card border border-line bg-paper p-5 shadow-card dark:border-white/10 dark:bg-[#0c2435]">
       <div className="mb-4 flex items-center gap-2">
@@ -237,13 +239,37 @@ function Panel({ icon, kicker, title, aside, children }) {
             {icon}
           </span>
         )}
-        <div>
+        <div className="min-w-0">
           <span className="text-[11px] font-semibold tracking-wider text-ink-3 uppercase">{kicker}</span>
-          <h2 className="text-[16px] font-bold text-ink dark:text-white">{title}</h2>
+          <h2 className="text-[16px] font-bold text-ink dark:text-white">
+            {collapsible ? (
+              <button
+                type="button"
+                aria-expanded={open}
+                onClick={toggle}
+                className="cursor-pointer text-left transition-colors hover:text-brand dark:hover:text-brand-hi"
+              >
+                {title}
+              </button>
+            ) : (
+              title
+            )}
+          </h2>
         </div>
         {aside && <div className="ml-auto text-[12.5px] text-ink-3">{aside}</div>}
+        {collapsible && (
+          <button
+            type="button"
+            aria-expanded={open}
+            aria-label={`${open ? "Collapse" : "Expand"} ${title}`}
+            onClick={toggle}
+            className="grid h-7 w-7 flex-none place-items-center rounded-lg border border-line text-ink-3 transition-colors hover:border-brand hover:text-brand dark:border-white/15"
+          >
+            <FaChevronDown className={`text-[11px] transition-transform duration-200 ${open ? "rotate-180" : ""}`} />
+          </button>
+        )}
       </div>
-      {children}
+      {open && children}
     </section>
   );
 }
@@ -261,11 +287,6 @@ export default function AlertEventDetails() {
   const [diagnosticLines, setDiagnosticLines] = useState([]);
   const [diagnosticError, setDiagnosticError] = useState("");
   const [rerunChecks, setRerunChecks] = useState({});
-  const [savedSummary, setSavedSummary] = useState(null);
-  const [editingSummary, setEditingSummary] = useState(false);
-  const [summaryForm, setSummaryForm] = useState({ hypothesis: "", steps: "", confidence: "medium" });
-  const [summaryBusy, setSummaryBusy] = useState("");
-  const [summaryMsg, setSummaryMsg] = useState("");
 
   useEffect(() => {
     if (detailEventId === null) {
@@ -280,16 +301,6 @@ export default function AlertEventDetails() {
       .then((result) => { if (!cancelled) setInfo(result); })
       .catch((requestError) => { if (!cancelled) setError(`Could not load event and ticket information: ${requestError.message}`); })
       .finally(() => { if (!cancelled) setLoadingInfo(false); });
-    return () => { cancelled = true; };
-  }, [detailEventId, retryCount]);
-
-  // Load any cached solution summary for this event (404 = none saved).
-  useEffect(() => {
-    if (detailEventId === null) return undefined;
-    let cancelled = false;
-    getSolutionSummary(detailEventId)
-      .then((saved) => { if (!cancelled) setSavedSummary(saved || null); })
-      .catch(() => { if (!cancelled) setSavedSummary(null); });
     return () => { cancelled = true; };
   }, [detailEventId, retryCount]);
 
@@ -326,13 +337,29 @@ export default function AlertEventDetails() {
   const dataMismatch = eventTypeName.toLowerCase() === "interface up" && pingResult?.reachable === false;
   const opened = relativeTime(alert.t);
   const absoluteEventId = detailEventId ?? eventId;
-  const solutionSource = solution.generated_by === "no_ticket_llm"
-    ? "LLM gave this response"
-    : solution.generated_by === "rule-based"
-      ? "Rule-based fallback"
-      : solution.generated_by === "gemini"
-        ? "Gemini analysis"
-        : solution.generated_by || "";
+  const isRuleBased = solution?.generated_by === "rule-based";
+  const isLlmWorking = Boolean(
+    solution &&
+    solution.generated_by &&
+    !isRuleBased &&
+    (solution.hypothesis || (solution.recommended_steps && solution.recommended_steps.length > 0) || recommendations.steps.length || recommendations.summary || recommendations.plainText)
+  );
+
+  const hasTickets = Boolean(history?.related_tickets && history.related_tickets.length > 0);
+  const hasTicketHistory = solution?.generated_by === "no_ticket_llm"
+    ? false
+    : solution?.has_ticket_context !== undefined
+      ? Boolean(solution.has_ticket_context && (history?.related_tickets ? hasTickets : true))
+      : hasTickets;
+
+  const ticketHistoryFlag = hasTicketHistory ? "used ticket history" : "ticket history not found";
+
+  const flagText = !isLlmWorking ? "LLM IS not working" : ticketHistoryFlag;
+  const flagTone = !isLlmWorking
+    ? "border-p1/25 bg-p1-bg text-p1-ink"
+    : hasTicketHistory
+      ? "border-good/25 bg-good-bg text-good"
+      : "border-warn/25 bg-warn-bg text-warn";
 
   const run = async (kind) => {
     if (!host.trim()) {
@@ -365,58 +392,6 @@ export default function AlertEventDetails() {
       await navigator.clipboard.writeText(device.ip_address || alert.d.ip || "");
     } catch {
       setDiagnosticError("Could not copy the IP address. Select and copy it manually.");
-    }
-  };
-
-  const openSummaryEditor = () => {
-    setSummaryForm({
-      hypothesis: savedSummary?.hypothesis || recommendations.summary || "",
-      steps: (savedSummary?.recommended_steps || recommendations.steps || []).join("\n"),
-      confidence: savedSummary?.confidence || solution.confidence || "medium",
-    });
-    setSummaryMsg("");
-    setEditingSummary(true);
-  };
-
-  const persistSummary = async () => {
-    if (detailEventId === null) return;
-    const steps = summaryForm.steps.split("\n").map((step) => step.trim()).filter(Boolean);
-    if (!summaryForm.hypothesis.trim() || !steps.length) {
-      setSummaryMsg("A hypothesis and at least one step are required.");
-      return;
-    }
-    setSummaryBusy("save");
-    setSummaryMsg("");
-    try {
-      const saved = await saveSolutionSummary({
-        event_id: detailEventId,
-        hypothesis: summaryForm.hypothesis.trim(),
-        recommended_steps: steps,
-        confidence: summaryForm.confidence,
-        generated_by: "analyst",
-      });
-      setSavedSummary(saved || null);
-      setEditingSummary(false);
-      setSummaryMsg("Summary saved.");
-    } catch (requestError) {
-      setSummaryMsg(requestError.message);
-    } finally {
-      setSummaryBusy("");
-    }
-  };
-
-  const removeSummary = async () => {
-    if (detailEventId === null) return;
-    setSummaryBusy("delete");
-    setSummaryMsg("");
-    try {
-      await deleteSolutionSummary(detailEventId);
-      setSavedSummary(null);
-      setSummaryMsg("Saved summary deleted.");
-    } catch (requestError) {
-      setSummaryMsg(requestError.message);
-    } finally {
-      setSummaryBusy("");
     }
   };
 
@@ -531,6 +506,8 @@ export default function AlertEventDetails() {
             kicker="Event history"
             title="Recent error logs"
             aside={loadingInfo ? "Loading" : `${recentLogs.length} returned`}
+            collapsible
+            defaultOpen={false}
           >
             {loadingInfo ? (
               <LoadingSkeleton rows={3} />
@@ -568,6 +545,8 @@ export default function AlertEventDetails() {
                 <b className="text-ink-2">{loadingInfo ? "—" : history.total_incidents_6m ?? "0"}</b> occurrences · 6 months
               </span>
             }
+            collapsible
+            defaultOpen={false}
           >
             {loadingInfo ? (
               <LoadingSkeleton rows={3} />
@@ -591,12 +570,20 @@ export default function AlertEventDetails() {
             icon={<FaLightbulb />}
             kicker="Remediation"
             title="Recommended steps"
-            aside={solutionSource && !loadingInfo ? <span className="rounded-full bg-brand-tint px-2.5 py-0.5 text-[11.5px] font-semibold text-brand dark:bg-brand/20 dark:text-brand-hi">{solutionSource}</span> : null}
+            aside={
+              !loadingInfo && flagText ? (
+                <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[11.5px] font-semibold border ${flagTone}`}>
+                  {flagText}
+                </span>
+              ) : null
+            }
           >
             {loadingInfo ? (
               <LoadingSkeleton rows={4} />
-            ) : error ? (
-              <p className="text-[13px] text-ink-3">Recommendations failed to load. Use Retry above to request them again.</p>
+            ) : error || !isLlmWorking ? (
+              <div className="rounded-xl border border-p1/25 bg-p1-bg px-4 py-3 text-[13.5px] font-semibold text-p1-ink">
+                LLM IS not working
+              </div>
             ) : recommendations.steps.length || recommendations.plainText || recommendations.summary ? (
               <div className="grid gap-3">
                 {recommendations.summary && (
@@ -605,16 +592,12 @@ export default function AlertEventDetails() {
                   </p>
                 )}
                 {recommendations.steps.length > 0 && (
-                  <ol className="grid gap-2">
-                    {recommendations.steps.map((step, index) => (
-                      <li key={index} className="flex gap-3 rounded-lg border border-line bg-paper px-3 py-2.5 text-[13.5px] text-ink-2 dark:border-white/10 dark:bg-white/5">
-                        <span className="grid h-6 w-6 flex-none place-items-center rounded-full bg-brand-tint text-[12px] font-bold text-brand dark:bg-brand/25 dark:text-brand-hi">
-                          {index + 1}
-                        </span>
-                        {step}
-                      </li>
-                    ))}
-                  </ol>
+                  <p className="whitespace-pre-wrap rounded-xl border border-line bg-paper px-4 py-3 text-[13.5px] leading-relaxed text-ink-2 dark:border-white/10 dark:bg-white/5">
+                    {recommendations.steps
+                      .map((step) => String(step).replace(/^\s*\d+[.)]\s*/, "").trim())
+                      .filter(Boolean)
+                      .join(" ")}
+                  </p>
                 )}
                 {recommendations.plainText && (
                   <p className="whitespace-pre-wrap text-[13.5px] text-ink-2">{recommendations.plainText}</p>
@@ -623,96 +606,6 @@ export default function AlertEventDetails() {
             ) : (
               <p className="text-[13px] text-ink-3">No recommended solution was returned for this event. Retry to request the latest solution.</p>
             )}
-
-            {/* Analyst-owned cached summary (POST/DELETE /solution-summaries) */}
-            <div className="mt-4 border-t border-dashed border-line pt-4 dark:border-white/10">
-              <div className="flex flex-wrap items-center gap-2">
-                <h4 className="text-[11px] font-semibold tracking-wider text-ink-3 uppercase">Saved summary</h4>
-                {savedSummary ? (
-                  <span className="rounded-full bg-good-bg px-2.5 py-0.5 text-[11.5px] font-semibold text-good">
-                    Cached{savedSummary.generated_by ? ` · ${savedSummary.generated_by}` : ""}
-                  </span>
-                ) : (
-                  <span className="rounded-full bg-paper-3 px-2.5 py-0.5 text-[11.5px] font-semibold text-ink-3 dark:bg-white/10">
-                    Not saved
-                  </span>
-                )}
-                <div className="ml-auto flex gap-2">
-                  {!editingSummary && (
-                    <button
-                      type="button"
-                      onClick={openSummaryEditor}
-                      className="inline-flex items-center gap-1.5 rounded-lg border border-line-strong bg-paper px-3 py-1.5 text-[12.5px] font-semibold text-ink-2 transition-colors hover:border-brand hover:text-brand dark:border-white/15 dark:bg-white/5"
-                    >
-                      <FaPencilAlt /> {savedSummary ? "Edit" : "Save summary"}
-                    </button>
-                  )}
-                  {savedSummary && !editingSummary && (
-                    <button
-                      type="button"
-                      onClick={removeSummary}
-                      disabled={summaryBusy === "delete"}
-                      className="inline-flex items-center gap-1.5 rounded-lg border border-p1/25 bg-p1-bg px-3 py-1.5 text-[12.5px] font-semibold text-p1-ink transition-colors hover:border-p1 disabled:opacity-60"
-                    >
-                      {summaryBusy === "delete" ? <FaSpinner className="animate-spin" /> : <FaTrashAlt />} Delete
-                    </button>
-                  )}
-                </div>
-              </div>
-
-              {editingSummary && (
-                <div className="mt-3 grid gap-3 rounded-xl border border-line bg-paper-2 p-3 dark:border-white/10 dark:bg-white/5">
-                  <label className="grid gap-1 text-[12.5px] font-semibold text-ink-2">
-                    Hypothesis
-                    <textarea
-                      rows={2}
-                      value={summaryForm.hypothesis}
-                      onChange={(event) => setSummaryForm({ ...summaryForm, hypothesis: event.target.value })}
-                      className="resize-y rounded-lg border border-line-strong bg-paper px-3 py-2 text-[13px] font-normal text-ink outline-none focus:border-brand focus:ring-2 focus:ring-brand/20 dark:border-white/15 dark:bg-white/5 dark:text-white"
-                    />
-                  </label>
-                  <label className="grid gap-1 text-[12.5px] font-semibold text-ink-2">
-                    Recommended steps (one per line)
-                    <textarea
-                      rows={4}
-                      value={summaryForm.steps}
-                      onChange={(event) => setSummaryForm({ ...summaryForm, steps: event.target.value })}
-                      className="resize-y rounded-lg border border-line-strong bg-paper px-3 py-2 font-mono text-[12.5px] font-normal text-ink outline-none focus:border-brand focus:ring-2 focus:ring-brand/20 dark:border-white/15 dark:bg-white/5 dark:text-white"
-                    />
-                  </label>
-                  <label className="grid gap-1 text-[12.5px] font-semibold text-ink-2">
-                    Confidence
-                    <select
-                      value={summaryForm.confidence}
-                      onChange={(event) => setSummaryForm({ ...summaryForm, confidence: event.target.value })}
-                      className="w-40 rounded-lg border border-line-strong bg-paper px-3 py-2 text-[13px] font-normal text-ink outline-none focus:border-brand dark:border-white/15 dark:bg-white/5 dark:text-white"
-                    >
-                      <option value="high">High</option>
-                      <option value="medium">Medium</option>
-                      <option value="low">Low</option>
-                    </select>
-                  </label>
-                  <div className="flex justify-end gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setEditingSummary(false)}
-                      className="rounded-lg border border-line-strong bg-paper px-3 py-1.5 text-[12.5px] font-medium text-ink-2 transition-colors hover:bg-paper-3 dark:border-white/15 dark:bg-white/5"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      type="button"
-                      onClick={persistSummary}
-                      disabled={summaryBusy === "save"}
-                      className="inline-flex items-center gap-1.5 rounded-lg bg-brand px-3 py-1.5 text-[12.5px] font-semibold text-white transition-colors hover:bg-brand-hi disabled:opacity-60"
-                    >
-                      {summaryBusy === "save" ? <FaSpinner className="animate-spin" /> : <FaSave />} Save
-                    </button>
-                  </div>
-                </div>
-              )}
-              {summaryMsg && <p className="mt-2 text-[12.5px] text-ink-3">{summaryMsg}</p>}
-            </div>
           </Panel>
 
           <Panel icon={<FaTerminal />} kicker="Tools" title="Diagnostics">

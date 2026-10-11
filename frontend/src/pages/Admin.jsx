@@ -180,7 +180,7 @@ export default function Admin() {
         <h2 className="text-[22px] font-bold tracking-tight text-ink dark:text-white">Administration Configuration</h2>
         <button
           onClick={() => setShowSignupModal(true)}
-          className="inline-flex items-center gap-2 rounded-lg bg-brand px-4 py-2 text-[13.5px] font-semibold text-white shadow-sm transition-colors hover:bg-brand-hi"
+          className="inline-flex items-center gap-2 rounded-lg bg-brand px-4 py-2 text-[13.5px] font-semibold text-white dark:text-black shadow-sm transition-colors hover:bg-brand-hi"
         >
           <FaUserPlus /> Add New User
         </button>

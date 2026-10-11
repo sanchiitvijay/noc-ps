@@ -43,7 +43,7 @@ export default function AlertSimulation({ onEvents }) {
       aria-label="Live event simulation"
       className="flex flex-wrap items-center gap-4 rounded-card border border-brand-tint-2 bg-linear-to-r from-brand-tint to-paper px-5 py-4 shadow-card dark:border-white/10 dark:from-brand-tint/10 dark:to-transparent"
     >
-      <div className="grid h-11 w-11 place-items-center rounded-xl bg-brand text-white shadow-sm">
+      <div className="grid h-11 w-11 place-items-center rounded-xl bg-brand text-white dark:text-black shadow-sm">
         <FaBolt className="text-lg" />
       </div>
       <div className="min-w-0 flex-1">
@@ -57,7 +57,7 @@ export default function AlertSimulation({ onEvents }) {
         type="button"
         onClick={trigger}
         disabled={busy || streaming}
-        className="inline-flex items-center gap-2 rounded-lg bg-brand px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-brand-hi disabled:cursor-not-allowed disabled:opacity-50"
+        className="inline-flex items-center gap-2 rounded-lg bg-brand px-4 py-2 text-sm font-semibold text-white dark:text-black shadow-sm transition-colors hover:bg-brand-hi disabled:cursor-not-allowed disabled:opacity-50"
       >
         {busy || streaming ? <FaSpinner className="animate-spin" /> : <FaBolt />}
         {busy ? "Fetching events…" : streaming ? "Streaming events…" : events.length ? "Run simulation again" : "Trigger simulation"}

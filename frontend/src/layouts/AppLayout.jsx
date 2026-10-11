@@ -103,7 +103,7 @@ export default function AppLayout() {
               
               <div className="flex mt-2 flex-col mx-auto w-full border-t leading-tight">
                 <span className="text-[20px] mt-3 mx-auto  font-extrabold tracking-wide">NOCTURNE</span>
-                <span className="text-[11px] mx-auto mt-1 text-white/60">NOC Portal</span>
+                <span className="text-[11px] mx-auto mt-1 text-white/80">NOC Portal</span>
               </div>
             </>
           )}
@@ -111,7 +111,7 @@ export default function AppLayout() {
 
         <nav className="flex-1 space-y-1 overflow-y-auto px-2.5 py-4">
           {!collapsed && (
-            <div className="px-3 pb-1 text-[11px] font-semibold tracking-wider text-white/45 uppercase">
+            <div className="px-3 pb-1 text-[11px] font-semibold tracking-wider text-white/70 uppercase">
               Operations
             </div>
           )}
@@ -124,7 +124,7 @@ export default function AppLayout() {
                 `flex items-center gap-3 rounded-lg px-3 py-2.5 text-[14px] font-medium transition-colors ${
                   isActive
                     ? "bg-white text-brand shadow-sm dark:bg-[#0f3a58] dark:text-white"
-                    : "text-white/80 hover:bg-white/10 hover:text-white"
+                    : "text-white/85 hover:bg-white/10 hover:text-white"
                 } ${collapsed ? "justify-center" : ""}`
               }
             >
@@ -138,7 +138,7 @@ export default function AppLayout() {
           <button
             onClick={() => setCollapsed((value) => !value)}
             aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-            className="flex w-full items-center justify-center gap-2 rounded-lg px-3 py-2 text-white/70 transition-colors hover:bg-white/10 hover:text-white"
+            className="flex w-full items-center justify-center gap-2 rounded-lg px-3 py-2 text-white/90 transition-colors hover:bg-white/10 hover:text-white"
           >
             {collapsed ? <FaBars /> : <><FaChevronLeft /><span className="text-[13px]">Collapse</span></>}
           </button>
@@ -192,7 +192,7 @@ export default function AppLayout() {
           <div className="relative" ref={profileRef}>
             <button
               onClick={() => setProfileOpen((value) => !value)}
-              className="grid h-10 w-10 place-items-center rounded-full bg-brand font-bold text-white ring-2 ring-transparent transition hover:ring-brand/30"
+              className="grid h-10 w-10 place-items-center rounded-full bg-brand font-bold text-white dark:text-black ring-2 ring-transparent transition hover:ring-brand/30"
               aria-label="Account menu"
             >
               {me.name.charAt(0).toUpperCase()}

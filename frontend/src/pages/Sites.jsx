@@ -73,7 +73,7 @@ function Tilegram({ states, activeState, onPick }) {
             } ${active ? "outline-2 outline-offset-1 outline-brand" : ""}`}
             style={{
               background: step ? palette[step] : dark ? "#0f2a3d40" : "#eef3f7aa",
-              color: lightText ? "#fff" : step ? (dark ? "#e8f0f6" : "#0e2232") : "#77787b",
+              color: dark ? "#ffffff" : (lightText ? "#fff" : step ? "#0e2232" : "#77787b"),
               fontSize: "10px",
             }}
           >

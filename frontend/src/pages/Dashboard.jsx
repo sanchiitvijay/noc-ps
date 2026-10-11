@@ -19,8 +19,8 @@ const RANGES = [
   { id: "30d", label: "30 days" },
   { id: "all", label: "All time" },
 ];
-const GRID = "#dce3e9";
-const AXIS = "#8b98a5";
+const GRID = "var(--color-line)";
+const AXIS = "var(--color-ink-3)";
 const fmt = (value) => Number(value || 0).toLocaleString();
 const formatDeviceValue = (value) =>
   value === null || value === undefined || value === ""
@@ -327,13 +327,13 @@ export default function Dashboard() {
                 aria-pressed={on}
                 className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-[12.5px] font-semibold transition-colors ${
                   on
-                    ? "border-brand bg-brand text-white"
-                    : "border-line-strong bg-paper text-ink-2 hover:border-brand hover:text-brand dark:border-white/15 dark:bg-white/5"
+                    ? "border-brand bg-brand text-white dark:text-black"
+                    : "border-line-strong bg-paper text-ink-2 dark:text-black hover:border-brand hover:text-brand dark:border-white/5 dark:bg-white/5"
                 }`}
               >
                 <i className="h-2.5 w-2.5 rounded-sm" style={{ background: COLORS[severity] || COLORS.Unknown }} />
                 {severity}
-                <span className={on ? "text-white/80" : "text-ink-3"}>{fmt(severityTotals[severity] || 0)}</span>
+                <span className={on ? "text-white/80 dark:text-black" : "text-ink-3"}>{fmt(severityTotals[severity] || 0)}</span>
               </button>
             );
           })}
@@ -406,8 +406,13 @@ export default function Dashboard() {
                 <CartesianGrid stroke={GRID} vertical={false} />
                 <XAxis dataKey="label" tick={{ fill: AXIS, fontSize: 10 }} axisLine={false} tickLine={false} minTickGap={16} />
                 <YAxis tick={{ fill: AXIS, fontSize: 10 }} axisLine={false} tickLine={false} allowDecimals={false} tickFormatter={(value) => (value >= 1000 ? `${Math.round(value / 1000)}k` : value)} />
-                <Tooltip formatter={(value) => [fmt(value), "Events"]} contentStyle={{ border: "1px solid #dce3e9", borderRadius: 10, fontSize: 12 }} />
-                <Area type="monotone" dataKey="count" stroke="#00446a" strokeWidth={2} fill="#00446a" fillOpacity={0.22} />
+                <Tooltip
+                  formatter={(value) => [fmt(value), "Events"]}
+                  contentStyle={{ backgroundColor: "var(--color-paper)", color: "var(--color-ink)", border: "1px solid var(--color-line)", borderRadius: 10, fontSize: 12 }}
+                  itemStyle={{ color: "var(--color-ink)" }}
+                  labelStyle={{ color: "var(--color-ink)" }}
+                />
+                <Area type="monotone" dataKey="count" stroke="var(--color-brand)" strokeWidth={2} fill="var(--color-brand)" fillOpacity={0.22} />
               </AreaChart>
             </ResponsiveContainer>
           </div>
@@ -424,7 +429,12 @@ export default function Dashboard() {
                 <CartesianGrid stroke={GRID} vertical={false} />
                 <XAxis dataKey="severity" tick={{ fill: AXIS, fontSize: 11 }} axisLine={false} tickLine={false} />
                 <YAxis tick={{ fill: AXIS, fontSize: 10 }} axisLine={false} tickLine={false} allowDecimals={false} tickFormatter={(value) => (value >= 1000 ? `${Math.round(value / 1000)}k` : value)} />
-                <Tooltip formatter={(value) => [fmt(value), "Events"]} contentStyle={{ border: "1px solid #dce3e9", borderRadius: 10, fontSize: 12 }} />
+                <Tooltip
+                  formatter={(value) => [fmt(value), "Events"]}
+                  contentStyle={{ backgroundColor: "var(--color-paper)", color: "var(--color-ink)", border: "1px solid var(--color-line)", borderRadius: 10, fontSize: 12 }}
+                  itemStyle={{ color: "var(--color-ink)" }}
+                  labelStyle={{ color: "var(--color-ink)" }}
+                />
                 <Bar dataKey="count" radius={[4, 4, 0, 0]}>
                   {severityBars.map((entry) => (
                     <Cell key={entry.severity} fill={COLORS[entry.severity] || COLORS.Unknown} fillOpacity={selectedSeverities.includes(entry.severity) ? 0.9 : 0.25} />

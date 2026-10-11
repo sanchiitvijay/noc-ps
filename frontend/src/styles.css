@@ -83,9 +83,68 @@
     background: var(--color-canvas);
     min-height: 100vh;
   }
+  html.dark,
+  .dark {
+    --color-ink: #ffffff;
+    --color-ink-2: #ffffff;
+    --color-ink-3: #ffffff;
+    --color-steel: #ffffff;
+    --color-canvas: #061724;
+    --color-paper: #0c2435;
+    --color-paper-2: rgba(255, 255, 255, 0.05);
+    --color-paper-3: rgba(255, 255, 255, 0.1);
+    --color-line: rgba(255, 255, 255, 0.1);
+    --color-line-strong: rgba(255, 255, 255, 0.15);
+    --color-brand: #38bdf8;
+    --color-brand-hi: #7dd3fc;
+    --color-brand-tint: rgba(56, 189, 248, 0.15);
+    --color-brand-tint-2: rgba(56, 189, 248, 0.25);
+  }
   .dark body {
-    color: #e8f0f6;
+    color: #ffffff;
     background: #061724;
+  }
+  .dark .text-brand,
+  html.dark .text-brand,
+  :where(.dark, .dark *) .text-brand {
+    color: #38bdf8 !important;
+  }
+  .dark .text-brand-hi,
+  html.dark .text-brand-hi,
+  :where(.dark, .dark *) .text-brand-hi {
+    color: #7dd3fc !important;
+  }
+  .dark [class*="hover:text-brand"]:hover,
+  html.dark [class*="hover:text-brand"]:hover,
+  :where(.dark, .dark *) [class*="hover:text-brand"]:hover {
+    color: #7dd3fc !important;
+  }
+  .dark [class*="hover:text-brand-hi"]:hover,
+  html.dark [class*="hover:text-brand-hi"]:hover,
+  :where(.dark, .dark *) [class*="hover:text-brand-hi"]:hover {
+    color: #bae6fd !important;
+  }
+  .dark button.bg-brand,
+  .dark a.bg-brand,
+  html.dark button.bg-brand,
+  html.dark a.bg-brand {
+    background-color: #0284c7;
+    color: #ffffff;
+  }
+  .dark button.bg-brand:hover,
+  .dark a.bg-brand:hover,
+  html.dark button.bg-brand:hover,
+  html.dark a.bg-brand:hover {
+    background-color: #0369a1;
+    color: #ffffff;
+  }
+  .dark input::placeholder,
+  .dark textarea::placeholder {
+    color: rgba(255, 255, 255, 0.6);
+  }
+  .dark select option {
+    background-color: #0c2435;
+    color: #ffffff;
   }
   ::selection {
     background: var(--color-brand-tint-2);

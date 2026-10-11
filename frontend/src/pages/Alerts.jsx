@@ -288,7 +288,7 @@ export default function Alerts() {
           <button
             type="submit"
             disabled={loadingLogs}
-            className="inline-flex items-center gap-2 rounded-lg bg-brand px-4 py-2 text-[13.5px] font-semibold text-white shadow-sm transition-colors hover:bg-brand-hi disabled:opacity-60"
+            className="inline-flex items-center gap-2 rounded-lg bg-brand px-4 py-2 text-[13.5px] font-semibold text-white dark:text-black shadow-sm transition-colors hover:bg-brand-hi disabled:opacity-60"
           >
             {loadingLogs ? <FaSpinner className="animate-spin" /> : <FaSearch />}
             {loadingLogs ? "Searching…" : "Search logs"}

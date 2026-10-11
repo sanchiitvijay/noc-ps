@@ -213,7 +213,7 @@ export default function Tickets() {
           <button
             type="submit"
             disabled={loading}
-            className="inline-flex items-center gap-2 rounded-lg bg-brand px-4 py-2 text-[13.5px] font-semibold text-white shadow-sm transition-colors hover:bg-brand-hi disabled:opacity-60"
+            className="inline-flex items-center gap-2 rounded-lg bg-brand px-4 py-2 text-[13.5px] font-semibold text-white dark:text-black shadow-sm transition-colors hover:bg-brand-hi disabled:opacity-60"
           >
             {loading ? <FaSpinner className="animate-spin" /> : <FaSearch />} Search
           </button>

@@ -6,8 +6,8 @@ Fallback chain:
     2. Groq  (fallback — groq SDK, model: openai/gpt-oss-20b)
   3. Rule-based (final fallback — always succeeds)
 
-Sends only minimal, essential context to the LLM (device type, event, ping
-status, ticket count + up to 3 ticket snippets) to minimise token usage.
+Sends essential context to the LLM (device type, event, ping status,
+ticket count + up to 3 ticket snippets with work notes) to assist diagnosis.
 
 If a saved ticket solution summary exists for the device+event_type combination,
 it is injected into the prompt so the LLM can reference it directly.
@@ -94,12 +94,13 @@ def _build_prompt(
     historical: dict,
     diagnostics: dict,
     saved_summary: dict | None = None,
+    work_notes: str | list[str] | None = None,
 ) -> str:
-    """Construct a *minimal* prompt — only essential fields.
+    """Construct a prompt with essential device, event, diagnostic, and ticket work notes.
 
-    We deliberately omit large blobs (full description, work_notes,
-    raw_detail, traceroute hops, nslookup details) to keep the context
-    small and fast.
+    We include ticket work notes to aid root-cause diagnosis while omitting large blobs
+    (full description, raw_detail, traceroute hops, nslookup details) to keep
+    the context focused.
 
     Args:
         device: Device row dict.
@@ -107,21 +108,38 @@ def _build_prompt(
         historical: Historical info dict (total_incidents_6m, related_tickets).
         diagnostics: Preliminary checks dict.
         saved_summary: Optional pre-computed ticket solution summary from DB.
+        work_notes: Optional explicit work notes string or list of notes.
 
     Returns:
-        A compact prompt string.
+        A compact prompt string with work notes.
     """
     tickets = historical.get("related_tickets", [])
     has_tickets = bool(tickets)
 
-    # Up to 3 tickets — only number, state, short_description (max 100 chars)
+    # Up to 3 tickets — number, state, short_description (max 100 chars), and work notes
     ticket_lines: list[str] = []
     for t in tickets[:3]:
         desc = (t.get("short_description") or "")[:100]
-        ticket_lines.append(
-            f"  [{t.get('ticket_number', 'N/A')}] state={t.get('state', '?')} — {desc}"
-        )
+        raw_notes = t.get("work_notes")
+        notes = str(raw_notes).strip() if raw_notes is not None else ""
+        ticket_entry = f"  [{t.get('ticket_number', 'N/A')}] state={t.get('state', '?')} — {desc}"
+        if notes:
+            indented_notes = "\n    ".join(notes.splitlines())
+            ticket_entry += f"\n    Work notes: {indented_notes}"
+        ticket_lines.append(ticket_entry)
     ticket_text = "\n".join(ticket_lines) if ticket_lines else "None found."
+
+    # Explicit / top-level work notes (from argument or historical dict)
+    extra_notes = work_notes if work_notes is not None else historical.get("work_notes")
+    extra_notes_block = ""
+    if extra_notes is not None:
+        if isinstance(extra_notes, (list, tuple)):
+            cleaned_notes = "\n".join(str(n).strip() for n in extra_notes if n and str(n).strip())
+        else:
+            cleaned_notes = str(extra_notes).strip()
+        if cleaned_notes:
+            indented_extra = "\n  ".join(cleaned_notes.splitlines())
+            extra_notes_block = f"Work notes:\n  {indented_extra}\n"
 
     # Ping summary only (most actionable diagnostic signal)
     ping = diagnostics.get("ping", {})
@@ -152,7 +170,7 @@ Device: {device.get('device_name', 'N/A')} | IP: {device.get('ip_address', 'N/A'
 Event: {event_type.get('event_type_name', 'N/A')} | Severity: {event_type.get('severity', 'N/A')} | Category: {event_type.get('category', 'N/A')}
 Incidents (recent): {historical.get('total_incidents_6m', 0)}
 Ping: {ping_status} (loss={ping_loss}%, rtt={ping_rtt}ms)
-Related tickets:
+{extra_notes_block}Related tickets:
 {ticket_text}
 
 Respond ONLY with this JSON (no markdown):
@@ -243,6 +261,7 @@ async def generate_suggested_solution(
     historical: dict,
     diagnostics: dict,
     saved_summary: dict | None = None,
+    work_notes: str | list[str] | None = None,
 ) -> dict:
     """Generate a hypothesis and recommended steps.
 
@@ -258,6 +277,7 @@ async def generate_suggested_solution(
         historical: Historical info dict from ticket_service.
         diagnostics: Diagnostic results dict from diagnostic_service.
         saved_summary: Optional pre-computed summary dict from DB.
+        work_notes: Optional explicit work notes string or list of notes.
 
     Returns:
         Dict with ``hypothesis``, ``recommended_steps``, ``confidence``,
@@ -265,7 +285,14 @@ async def generate_suggested_solution(
         keys.
     """
     has_tickets = bool(historical.get("related_tickets"))
-    prompt = _build_prompt(device, event_type, historical, diagnostics, saved_summary)
+    prompt = _build_prompt(
+        device,
+        event_type,
+        historical,
+        diagnostics,
+        saved_summary,
+        work_notes=work_notes,
+    )
 
     def _wrap(parsed: dict, source: str) -> dict:
         return {

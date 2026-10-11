@@ -325,7 +325,6 @@ noc-ps/
 ├── noc_database_setup 1/      # Standalone initial ETL pipeline module
 ├── noc_automation_4.db        # Active database file (6,586 devices, 134,412 events)
 ├── start.sh / start.bat / start.ps1   # Multi-platform unified launch scripts
-├── stop.sh / stop.bat                 # Multi-platform shutdown scripts
 └── README.md                  # Quickstart documentation
 ```
 

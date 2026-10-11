@@ -16,25 +16,19 @@ The startup scripts automatically create the Python virtual environment (`.venv`
 ```bash
 ./start.sh
 ```
-To stop all servers:
-```bash
-./stop.sh
-```
+Press `Ctrl+C` in the terminal to stop both servers cleanly.
 
 #### Windows
 **Command Prompt:**
 ```cmd
 start.bat
 ```
-To stop:
-```cmd
-stop.bat
-```
 
 **PowerShell:**
 ```powershell
 .\start.ps1
 ```
+Press `Ctrl+C` or close the terminal window to stop.
 
 Once started:
 - **Frontend**: [http://localhost:5173](http://localhost:5173)
@@ -62,8 +56,7 @@ noc-ps/
 ├── sql/                      # Migration SQL scripts, query templates, and table seed dumps
 ├── noc_database_setup 1/     # Initial database ETL setup scripts
 ├── noc_automation_4.db       # Active SQLite database file
-├── start.sh / start.bat / start.ps1   # Multi-platform unified start scripts
-└── stop.sh / stop.bat                 # Multi-platform unified stop scripts
+└── start.sh / start.bat / start.ps1   # Multi-platform unified start scripts
 ```
 
 ---

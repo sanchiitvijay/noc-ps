@@ -206,23 +206,23 @@ Fail-safe logic ensuring analysts always receive recommended remediation steps, 
 
 ```mermaid
 flowchart TD
-    Start([Analyst Selects Alert]) --> BuildPrompt[Assemble Unified Context<br/>Device + Event + Diagnostics + Ticket History]
-    BuildPrompt --> CheckGemini{Google Gemini<br/>API Available?}
+    Start["Analyst Selects Alert"] --> BuildPrompt["Assemble Unified Context<br/>Device + Event + Diagnostics + Ticket History"]
+    BuildPrompt --> CheckGemini{"Google Gemini API Available?"}
 
-    CheckGemini -- Yes --> CallGemini[Call Gemini 3.5 Flash<br/>Structured JSON Prompt]
-    CallGemini -- Success --> SaveCache[Save to TICKET_SOLUTION_SUMMARIES]
-    CallGemini -- Rate Limit / Error --> CheckGroq
+    CheckGemini -->|Yes| CallGemini["Call Gemini 3.5 Flash<br/>Structured JSON Prompt"]
+    CallGemini -->|Success| SaveCache["Save to TICKET_SOLUTION_SUMMARIES"]
+    CallGemini -->|Rate Limit or Error| CheckGroq
 
-    CheckGemini -- No / Disabled --> CheckGroq{Groq LLaMA-3<br/>API Available?}
-    CheckGroq -- Yes --> CallGroq[Call Groq LLaMA-3<br/>Fast Failover Model]
-    CallGroq -- Success --> SaveCache
-    CallGroq -- Error --> RuleEngine
+    CheckGemini -->|No or Disabled| CheckGroq{"Groq LLaMA-3 API Available?"}
+    CheckGroq -->|Yes| CallGroq["Call Groq LLaMA-3<br/>Fast Failover Model"]
+    CallGroq -->|Success| SaveCache
+    CallGroq -->|Error| RuleEngine
 
-    CheckGroq -- No / Disabled --> RuleEngine[Execute Deterministic Rule Engine]
-    RuleEngine --> MatchRules{Evaluate Category & Severity<br/>• Interface / BGP / Flap<br/>• Memory / CPU / Temp<br/>• Link Down / Route Loss}
-    MatchRules --> GenerateSOP[Synthesize Standard Operating Procedure<br/>(Deterministic Expert Rules)]
+    CheckGroq -->|No or Disabled| RuleEngine["Execute Deterministic Rule Engine"]
+    RuleEngine --> MatchRules{"Evaluate Category and Severity<br/>Interface, BGP, CPU, Link"}
+    MatchRules --> GenerateSOP["Synthesize Standard Operating Procedure<br/>Deterministic Expert Rules"]
     
-    SaveCache --> RenderUI([Render Actionable Plan to Analyst])
+    SaveCache --> RenderUI["Render Actionable Plan to Analyst"]
     GenerateSOP --> RenderUI
 ```
 
@@ -233,31 +233,31 @@ Demonstrates how large CSV/Excel files are ingested without blocking the REST AP
 
 ```mermaid
 flowchart TD
-    Admin([Administrator]) -->|Uploads CSV / Excel| PostAPI[POST /admin/ingest-excel]
+    Admin["Administrator"] -->|Uploads CSV or Excel| PostAPI["POST /admin/ingest-excel"]
     
     subgraph WebAPI ["FastAPI REST Server"]
-        PostAPI --> ValidateFile{Validate Headers & Structure}
-        ValidateFile -- Invalid Format --> Return400[HTTP 400 Bad Request]
-        ValidateFile -- Valid Structure --> CreateJob[Create Record in ingest_jobs<br/>Status = 'queued']
-        CreateJob --> SpawnTask[Spawn asyncio Background Worker]
-        SpawnTask --> Return202[HTTP 202 Accepted<br/>Returns job_id]
+        PostAPI --> ValidateFile{"Validate Headers and Structure"}
+        ValidateFile -->|Invalid Format| Return400["HTTP 400 Bad Request"]
+        ValidateFile -->|Valid Structure| CreateJob["Create Record in ingest_jobs<br/>Status: queued"]
+        CreateJob --> SpawnTask["Spawn asyncio Background Worker"]
+        SpawnTask --> Return202["HTTP 202 Accepted<br/>Returns job_id"]
     end
 
     subgraph FrontendUI ["React Application"]
-        Return202 --> PollJob[Poll GET /admin/ingest-excel/{job_id}<br/>Progress Bar & Status Updates]
+        Return202 --> PollJob["Poll GET /admin/ingest-excel/job_id<br/>Progress Bar and Status Updates"]
     end
 
     subgraph BackgroundWorker ["Async Ingestion Worker"]
-        SpawnTask -.-> SetProcessing[Update Status = 'processing']
-        SetProcessing --> ChunkRead[Read CSV in 10,000-Row Chunks]
-        ChunkRead --> NormalizeData[Normalize Timestamps & Site Codes]
-        NormalizeData --> BatchUpsert[Batch UPSERT into SQLite<br/>Devices / Events / Tickets]
-        BatchUpsert --> RebuildMap[Recalculate DEVICE_TICKET_MAP<br/>Confidence Scores]
-        RebuildMap --> MarkDone[Update Status = 'completed']
+        SpawnTask -.-> SetProcessing["Update Status: processing"]
+        SetProcessing --> ChunkRead["Read CSV in 10,000-Row Chunks"]
+        ChunkRead --> NormalizeData["Normalize Timestamps and Site Codes"]
+        NormalizeData --> BatchUpsert["Batch UPSERT into SQLite<br/>Devices, Events, Tickets"]
+        BatchUpsert --> RebuildMap["Recalculate DEVICE_TICKET_MAP<br/>Confidence Scores"]
+        RebuildMap --> MarkDone["Update Status: completed"]
     end
 
     MarkDone --> PollJob
-    PollJob --> UIComplete[Display Ingest Summary Banner]
+    PollJob --> UIComplete["Display Ingest Summary Banner"]
 ```
 
 ---

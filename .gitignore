@@ -24,3 +24,4 @@ data/legacy_dbs/
 *.pptx
 scripts/generate_presentation.py
 docs/PRESENTATION_GUIDE.md
+docs/intruction.md

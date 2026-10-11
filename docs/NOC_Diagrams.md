@@ -20,7 +20,7 @@ flowchart TB
         
         TriageEngine["Alert Triage Engine (/error-info)"]
         DiagRunner["Network Diagnostics Engine<br/>(ICMP Ping, Traceroute, Reverse DNS)"]
-        AIService["AI Synthesis Engine<br/>(Gemini 1.5 Flash -> Groq LLaMA-3 -> Rule Engine)"]
+        AIService["AI Synthesis Engine<br/>(Gemini 3.5 Flash -> Groq LLaMA-3 -> Rule Engine)"]
         IngestWorker["Async Background Ingest Worker<br/>(Pandas Chunked Parser, Entity Linker)"]
     end
 
@@ -209,7 +209,7 @@ flowchart TD
     Start([Analyst Selects Alert]) --> BuildPrompt[Assemble Unified Context<br/>Device + Event + Diagnostics + Ticket History]
     BuildPrompt --> CheckGemini{Google Gemini<br/>API Available?}
 
-    CheckGemini -- Yes --> CallGemini[Call Gemini 1.5 Flash<br/>Structured JSON Prompt]
+    CheckGemini -- Yes --> CallGemini[Call Gemini 3.5 Flash<br/>Structured JSON Prompt]
     CallGemini -- Success --> SaveCache[Save to TICKET_SOLUTION_SUMMARIES]
     CallGemini -- Rate Limit / Error --> CheckGroq
 

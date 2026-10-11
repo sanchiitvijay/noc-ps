@@ -152,7 +152,7 @@ erDiagram
     TICKET_SOLUTION_SUMMARIES {
         int id PK
         int event_id FK "Unique per event"
-        string model_used "gemini-1.5, groq-llama3, or rule-based"
+        string model_used "gemini-3.5, groq-llama3, or rule-based"
         string hypothesis "Synthesized root cause"
         string recommended_actions "Ordered action steps"
         datetime created_at
@@ -259,7 +259,7 @@ To ensure enterprise reliability, NAAP implements a three-tier fallback hierarch
 ```mermaid
 flowchart TD
     Prompt[Triage Context Assembled] --> CheckGemini{Is GEMINI_API_KEY set?}
-    CheckGemini -- Yes --> CallGemini[Call Google Gemini 1.5 Flash API]
+    CheckGemini -- Yes --> CallGemini[Call Google Gemini 3.5 Flash API]
     CallGemini -- Success --> ReturnAI[Return LLM Hypothesis & Steps]
     CallGemini -- Failure / Timeout --> CheckGroq
 
@@ -273,7 +273,7 @@ flowchart TD
     MatchSeverity --> ReturnRule[Return Standard Operating Procedure Steps]
 ```
 
-- **Primary:** Google Gemini 1.5 Flash provides high-speed structured JSON analysis.
+- **Primary:** Google Gemini 3.5 Flash provides high-speed structured JSON analysis.
 - **Secondary:** Groq LLaMA-3 provides sub-second failover.
 - **Deterministic SOP Engine:** Pre-compiled Standard Operating Procedures (SOPs) based on alert category (e.g., interface flaps, BGP resets, high CPU utilization) trigger if external cloud access is restricted or offline.
 

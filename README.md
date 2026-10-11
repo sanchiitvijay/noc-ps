@@ -2,6 +2,9 @@
 
 An automated Network Operations Center (NOC) metrics, alert monitoring, and root-cause analysis platform. Built with FastAPI (Python) on the backend and React + Vite + Tailwind CSS on the frontend.
 
+> **Looking for in-depth system architecture, workflows, and database specifications?**  
+> Please refer to the comprehensive [**System Documentation (`docs/documentation.md`)**](docs/documentation.md) and [**Architectural Diagrams (`docs/NOC_Diagrams.md`)**](docs/NOC_Diagrams.md).
+
 ## Quick Start
 
 ### Prerequisites

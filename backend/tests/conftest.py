@@ -29,8 +29,8 @@ from fastapi.testclient import TestClient
 # any working directory.
 _REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 _LIVE_DB = _REPO_ROOT / "noc_automation_4.db"
-# Fallback: noc-automation2.db (older copy kept for compatibility)
-_FALLBACK_DB = _REPO_ROOT / "noc-automation2.db"
+# Fallback: noc-automation2.db (older copy kept for compatibility in data/legacy_dbs/)
+_FALLBACK_DB = _REPO_ROOT / "data" / "legacy_dbs" / "noc-automation2.db"
 
 
 @pytest.fixture(scope="session")

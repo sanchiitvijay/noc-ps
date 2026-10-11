@@ -1,7 +1,8 @@
-from __future__ import annotations
-
+import logging
 import aiosqlite
 from database.connection import fetch_all, fetch_one
+
+logger = logging.getLogger(__name__)
 
 async def build_metrics(conn: aiosqlite.Connection, time_window: str = "all") -> dict:
     """Build proper time-based metrics based on the requested window.
@@ -120,29 +121,37 @@ async def build_metrics(conn: aiosqlite.Connection, time_window: str = "all") ->
     where_e = where_clause.replace("event_logs.", "e.")
     
     # 7. Busiest sites
-    q_sites = f"""
-        SELECT s.label as site_name, s.code as site_code, COUNT(e.event_id) as count
-        FROM event_logs e
-        JOIN devices d ON e.device_id = d.device_id
-        LEFT JOIN sites s ON d.site_code = s.code
-        {where_e}
-        GROUP BY s.code, s.label
-        ORDER BY count DESC
-        LIMIT 10
-    """
-    busiest_sites = [dict(r) for r in await fetch_all(conn, q_sites, params)]
+    busiest_sites = []
+    try:
+        q_sites = f"""
+            SELECT s.label as site_name, s.code as site_code, COUNT(e.event_id) as count
+            FROM event_logs e
+            JOIN devices d ON e.device_id = d.device_id
+            LEFT JOIN sites s ON d.site_code = s.code
+            {where_e}
+            GROUP BY s.code, s.label
+            ORDER BY count DESC
+            LIMIT 10
+        """
+        busiest_sites = [dict(r) for r in await fetch_all(conn, q_sites, params)]
+    except Exception as exc:
+        logger.warning("Failed to fetch busiest sites: %s", exc)
 
     # 8. Alerts by state
-    q_states = f"""
-        SELECT s.state, COUNT(e.event_id) as count
-        FROM event_logs e
-        JOIN devices d ON e.device_id = d.device_id
-        JOIN sites s ON d.site_code = s.code
-        {where_e}
-        GROUP BY s.state
-        ORDER BY count DESC
-    """
-    alerts_by_state = [dict(r) for r in await fetch_all(conn, q_states, params)]
+    alerts_by_state = []
+    try:
+        q_states = f"""
+            SELECT s.state, COUNT(e.event_id) as count
+            FROM event_logs e
+            JOIN devices d ON e.device_id = d.device_id
+            JOIN sites s ON d.site_code = s.code
+            {where_e}
+            GROUP BY s.state
+            ORDER BY count DESC
+        """
+        alerts_by_state = [dict(r) for r in await fetch_all(conn, q_states, params)]
+    except Exception as exc:
+        logger.warning("Failed to fetch alerts by state: %s", exc)
 
     # 9. Top event types
     q_top_types = f"""

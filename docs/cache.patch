@@ -1,0 +1,61 @@
+--- frontend/src/services/api.js
++++ frontend/src/services/api.js
+@@ -194,8 +194,22 @@
+   }
+ }
+ 
++const getCached = (key) => {
++  try {
++    const item = localStorage.getItem(key);
++    if (!item) return null;
++    const { value, expiry } = JSON.parse(item);
++    if (Date.now() > expiry) return null;
++    return value;
++  } catch (e) { return null; }
++};
++const setCached = (key, value, ttlMs = 300000) => {
++  localStorage.setItem(key, JSON.stringify({ value, expiry: Date.now() + ttlMs }));
++};
++
+ export const getMetrics = async (params = {}) => {
+-  const response = await request('/get-metrics', { query: params });
++  const cacheKey = 'metrics_' + JSON.stringify(params);
++  const cached = getCached(cacheKey);
++  if (cached) return cached;
++  const response = await request('/get-metrics', { query: params });
+-  return response?.data ?? response;
++  const res = response?.data ?? response;
++  setCached(cacheKey, res);
++  return res;
+ };
+ 
+ export const getLogs = async (params = {}) => {
+-  const response = await request('/get-logs', { query: params });
++  const cacheKey = 'logs_' + JSON.stringify(params);
++  const cached = getCached(cacheKey);
++  if (cached) return cached;
++  const response = await request('/get-logs', { query: params });
+   const data = response?.data ?? response;
+   if (Array.isArray(data)) {
+-    return {
++    const res = {
+       data,
+       total: response?.total ?? response?.meta?.total ?? data.length,
+       page: response?.page ?? response?.meta?.page ?? params.page ?? 1,
+       page_size: response?.page_size ?? response?.meta?.page_size ?? params.page_size ?? data.length,
+     };
++    setCached(cacheKey, res, 60000);
++    return res;
+   }
+   if (!Array.isArray(data?.data)) return data;
+-  return {
++  const res2 = {
+     ...data,
+     data: data.data,
+     total: data.total ?? data.meta?.total ?? data.meta?.total_returned ?? data.data.length,
+     page: data.page ?? data.meta?.page ?? params.page ?? 1,
+     page_size: data.page_size ?? data.meta?.page_size ?? params.page_size ?? data.data.length,
+   };
++  setCached(cacheKey, res2, 60000);
++  return res2;
+ };

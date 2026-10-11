@@ -4,8 +4,9 @@ import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-if str(REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT))
+for path_dir in [str(REPO_ROOT), str(REPO_ROOT / "scripts")]:
+    if path_dir not in sys.path:
+        sys.path.insert(0, path_dir)
 
 from incremental_updater import (
     clean_event_time,

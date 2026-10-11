@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import sqlite3
+from pathlib import Path
 
 from config import settings
 
@@ -135,6 +136,25 @@ CREATE INDEX IF NOT EXISTS idx_token_blocklist_jti ON token_blocklist(jti);
 """
 
 # ---------------------------------------------------------------------------
+# Sites table
+# ---------------------------------------------------------------------------
+
+CREATE_SITES_TABLE = """
+CREATE TABLE IF NOT EXISTS sites (
+    code       TEXT PRIMARY KEY,         -- canonical, zero-padded site/FEI code
+    label      TEXT,                     -- "Dallas, TX"
+    city       TEXT,
+    state      TEXT,
+    address    TEXT,
+    updated_at TEXT
+);
+"""
+
+CREATE_SITES_STATE_IDX = """
+CREATE INDEX IF NOT EXISTS idx_sites_state ON sites(state);
+"""
+
+# ---------------------------------------------------------------------------
 # Migration runner
 # ---------------------------------------------------------------------------
 
@@ -148,6 +168,8 @@ ALL_MIGRATIONS: list[tuple[str, str]] = [
     ("ingest_jobs status index", CREATE_INGEST_JOBS_IDX),
     ("token_blocklist table", CREATE_TOKEN_BLOCKLIST_TABLE),
     ("token_blocklist jti index", CREATE_TOKEN_BLOCKLIST_IDX),
+    ("sites table", CREATE_SITES_TABLE),
+    ("sites state index", CREATE_SITES_STATE_IDX),
 ]
 
 
@@ -219,6 +241,25 @@ def _migrate_ticket_solution_summaries(conn: sqlite3.Connection) -> None:
     conn.execute(CREATE_TSS_IDX)
 
 
+def _migrate_sites_data(conn: sqlite3.Connection) -> None:
+    """Populate the sites table from sites.sql if the table is empty."""
+    row = conn.execute("SELECT COUNT(*) FROM sites").fetchone()
+    if row and row[0] == 0:
+        candidates = [
+            Path(__file__).resolve().parents[2] / "sql" / "sites.sql",
+            Path(__file__).resolve().parents[2] / "sites.sql",
+            Path(settings.db_path).resolve().parent / "sites.sql",
+        ]
+        for sites_sql_path in candidates:
+            if sites_sql_path.exists():
+                logger.info("Populating sites table from %s …", sites_sql_path)
+                with open(sites_sql_path, "r", encoding="utf-8") as f:
+                    sql_text = f.read().replace("CREATE TABLE sites (", "CREATE TABLE IF NOT EXISTS sites (")
+                conn.executescript(sql_text)
+                logger.debug("Migration OK: sites table data populated")
+                break
+
+
 async def run_migrations() -> None:
     """Run all CREATE TABLE IF NOT EXISTS migrations.
 
@@ -238,6 +279,13 @@ async def run_migrations() -> None:
                 conn.close()
                 logger.error("Migration FAILED [%s]: %s", name, exc)
                 raise
+        try:
+            _migrate_sites_data(conn)
+            logger.debug("Migration OK: sites table check")
+        except Exception as exc:
+            conn.close()
+            logger.error("Migration FAILED [sites data]: %s", exc)
+            raise
         try:
             _migrate_activity_log_columns(conn)
             logger.debug("Migration OK: activity_logs extended columns")

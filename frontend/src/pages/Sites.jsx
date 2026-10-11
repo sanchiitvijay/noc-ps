@@ -3,6 +3,7 @@ import {
   FaSearch, FaSpinner, FaTimes, FaMapMarkerAlt, FaBell,
   FaExclamationTriangle, FaTicketAlt, FaServer,
 } from "react-icons/fa";
+import { Link } from "react-router-dom";
 import { getSite, getSites } from "../services/api";
 import Pagination from "../components/Pagination";
 
@@ -88,6 +89,7 @@ function SiteDrawer({ code, onClose }) {
   const [detail, setDetail] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [deviceSearch, setDeviceSearch] = useState("");
 
   useEffect(() => {
     if (!code) return undefined;
@@ -95,6 +97,7 @@ function SiteDrawer({ code, onClose }) {
     setLoading(true);
     setError("");
     setDetail(null);
+    setDeviceSearch("");
     getSite(code)
       .then((result) => { if (!cancelled) setDetail(result); })
       .catch((err) => { if (!cancelled) setError(err.message); })
@@ -108,9 +111,21 @@ function SiteDrawer({ code, onClose }) {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [onClose]);
 
+  const deviceRows = detail?.devices || [];
+  const filteredDevices = useMemo(() => {
+    if (!deviceSearch.trim()) return deviceRows;
+    const q = deviceSearch.toLowerCase();
+    return deviceRows.filter(
+      (d) =>
+        (d.device_name && d.device_name.toLowerCase().includes(q)) ||
+        (d.device_id && String(d.device_id).toLowerCase().includes(q)) ||
+        (d.ip_address && d.ip_address.toLowerCase().includes(q)) ||
+        (d.machine_type && d.machine_type.toLowerCase().includes(q))
+    );
+  }, [deviceRows, deviceSearch]);
+
   if (!code) return null;
   const site = detail?.site || {};
-  const deviceRows = detail?.devices || [];
   const recent = detail?.recent || [];
   const byCategory = detail?.by_category || [];
   const tickets = detail?.tickets || [];
@@ -121,7 +136,7 @@ function SiteDrawer({ code, onClose }) {
       className="animate-fade fixed inset-0 z-50 flex justify-end bg-[rgba(2,20,33,0.48)] backdrop-blur-[3px]"
       onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}
     >
-      <aside className="animate-rise flex h-full w-full max-w-2xl flex-col overflow-hidden border-l border-line bg-paper shadow-pop dark:border-white/10 dark:bg-[#0c2435]">
+      <aside className="animate-rise flex h-full w-full max-w-4xl flex-col overflow-hidden border-l border-line bg-paper shadow-pop dark:border-white/10 dark:bg-[#0c2435]">
         <header className="flex items-start gap-3 border-b border-line px-5 py-4 dark:border-white/10">
           <span className="grid h-11 w-11 flex-none place-items-center rounded-xl bg-brand-tint text-brand dark:bg-brand/20 dark:text-brand-hi">
             <FaMapMarkerAlt className="text-lg" />
@@ -157,28 +172,50 @@ function SiteDrawer({ code, onClose }) {
           {detail && (
             <>
               <section>
-                <h3 className="mb-3 text-[14px] font-bold text-ink dark:text-white">Devices ({deviceRows.length})</h3>
-                <div className="overflow-x-auto rounded-xl border border-line dark:border-white/10">
-                  <table className="w-full border-collapse text-[13px]">
-                    <thead>
-                      <tr className="bg-paper-2 dark:bg-white/5">
-                        {["Device", "ID", "Type", "IP", "Events"].map((h) => (
-                          <th key={h} className="border-b border-line px-3 py-2 text-left text-[11px] font-semibold tracking-wider text-ink-3 uppercase dark:border-white/10">{h}</th>
-                        ))}
+                <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                  <h3 className="text-[14px] font-bold text-ink dark:text-white">
+                    Devices ({filteredDevices.length}{filteredDevices.length !== deviceRows.length ? ` / ${deviceRows.length}` : ""})
+                  </h3>
+                  {deviceRows.length > 4 && (
+                    <input
+                      type="text"
+                      value={deviceSearch}
+                      onChange={(e) => setDeviceSearch(e.target.value)}
+                      placeholder="Filter devices…"
+                      aria-label="Filter devices in site"
+                      className="h-7 w-48 rounded-md border border-line bg-paper px-2.5 text-[12px] text-ink outline-none transition-colors focus:border-brand dark:border-white/15 dark:bg-white/5 dark:text-white"
+                    />
+                  )}
+                </div>
+                <div className="max-h-[380px] overflow-auto rounded-xl border border-line dark:border-white/10">
+                  <table className="w-full border-collapse text-[13px] min-w-[560px]">
+                    <thead className="sticky top-0 z-10 bg-paper-2 dark:bg-[#081b28]">
+                      <tr className="border-b border-line dark:border-white/10">
+                        <th className="px-3 py-2.5 text-left text-[11px] font-semibold tracking-wider text-ink-3 uppercase">Device</th>
+                        <th className="px-3 py-2.5 text-left text-[11px] font-semibold tracking-wider text-ink-3 uppercase">ID</th>
+                        <th className="px-3 py-2.5 text-left text-[11px] font-semibold tracking-wider text-ink-3 uppercase">Type</th>
+                        <th className="px-3 py-2.5 text-left text-[11px] font-semibold tracking-wider text-ink-3 uppercase">IP</th>
+                        <th className="px-3 py-2.5 text-right text-[11px] font-semibold tracking-wider text-ink-3 uppercase">Events</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-line dark:divide-white/10">
-                      {deviceRows.map((device) => (
-                        <tr key={device.device_id}>
-                          <td className="px-3 py-2 text-ink-2">{device.device_name}</td>
-                          <td className="px-3 py-2 font-mono text-ink-3">{device.device_id}</td>
-                          <td className="px-3 py-2 text-ink-2">{device.machine_type || "—"}</td>
-                          <td className="px-3 py-2 font-mono text-ink-3">{device.ip_address || "—"}</td>
-                          <td className="px-3 py-2 tabular font-semibold text-ink dark:text-white">{device.event_count}</td>
+                      {filteredDevices.map((device) => (
+                        <tr key={device.device_id} className="transition-colors hover:bg-paper-2/60 dark:hover:bg-white/5">
+                          <td className="px-3 py-2 text-ink-2 max-w-[200px] sm:max-w-[240px] truncate" title={device.device_name}>
+                            <Link to={`/alerts?device_id=${device.device_id}`} className="hover:text-brand hover:underline font-medium">
+                              {device.device_name}
+                            </Link>
+                          </td>
+                          <td className="px-3 py-2 font-mono text-[11.5px] text-ink-3 max-w-[120px] truncate" title={device.device_id}>
+                            {device.device_id}
+                          </td>
+                          <td className="px-3 py-2 whitespace-nowrap text-ink-2">{device.machine_type || "—"}</td>
+                          <td className="px-3 py-2 whitespace-nowrap font-mono text-[12px] text-ink-3">{device.ip_address || "—"}</td>
+                          <td className="px-3 py-2 whitespace-nowrap tabular text-right font-semibold text-ink dark:text-white">{device.event_count}</td>
                         </tr>
                       ))}
-                      {!deviceRows.length && (
-                        <tr><td colSpan={5} className="px-3 py-6 text-center text-ink-3">No devices at this site.</td></tr>
+                      {!filteredDevices.length && (
+                        <tr><td colSpan={5} className="px-3 py-6 text-center text-ink-3">No matching devices found.</td></tr>
                       )}
                     </tbody>
                   </table>
@@ -206,13 +243,17 @@ function SiteDrawer({ code, onClose }) {
                 <h3 className="mb-3 text-[14px] font-bold text-ink dark:text-white">Recent alerts ({recent.length})</h3>
                 <div className="grid gap-2">
                   {recent.map((alert, index) => (
-                    <div key={alert.id ?? index} className="flex items-start gap-3 rounded-lg border border-line bg-paper-2 px-3 py-2 dark:border-white/10 dark:bg-white/5">
+                    <Link
+                      key={alert.id ?? index}
+                      to={alert.id ? `/alerts/event/${alert.id}` : `/alerts?search=${encodeURIComponent(alert.device_name || "")}`}
+                      className="flex items-start gap-3 rounded-lg border border-line bg-paper-2 px-3 py-2 transition-colors hover:border-brand hover:bg-paper dark:border-white/10 dark:bg-white/5 dark:hover:bg-white/10"
+                    >
                       <span className="mt-0.5 rounded-md bg-paper-3 px-2 py-0.5 text-[11px] font-bold text-ink-2 dark:bg-white/10">{alert.severity || "—"}</span>
-                      <div className="min-w-0">
-                        <b className="block text-[13px] text-ink dark:text-white">{alert.name || alert.message}</b>
+                      <div className="min-w-0 flex-1">
+                        <b className="block truncate text-[13px] text-ink dark:text-white">{alert.name || alert.message}</b>
                         <span className="text-[12px] text-ink-3">{alert.device_name} · {alert.ts || "time n/a"}</span>
                       </div>
-                    </div>
+                    </Link>
                   ))}
                   {!recent.length && <p className="text-[13px] text-ink-3">No recent alerts.</p>}
                 </div>
@@ -224,10 +265,10 @@ function SiteDrawer({ code, onClose }) {
                   <div className="grid gap-2">
                     {tickets.map((ticket) => (
                       <div key={ticket.number} className="flex items-center gap-3 rounded-lg border border-line bg-paper-2 px-3 py-2 text-[13px] dark:border-white/10 dark:bg-white/5">
-                        <FaTicketAlt className="text-ink-3" />
-                        <b className="font-mono text-brand dark:text-brand-hi">{ticket.number}</b>
-                        <span className="truncate text-ink-2">{ticket.short_description}</span>
-                        <span className="ml-auto rounded-full bg-paper-3 px-2 py-0.5 text-[11px] font-semibold text-ink-2 dark:bg-white/10">{ticket.state}</span>
+                        <FaTicketAlt className="shrink-0 text-ink-3" />
+                        <b className="shrink-0 font-mono text-brand dark:text-brand-hi">{ticket.number}</b>
+                        <span className="min-w-0 flex-1 truncate text-ink-2">{ticket.short_description}</span>
+                        <span className="shrink-0 rounded-full bg-paper-3 px-2 py-0.5 text-[11px] font-semibold text-ink-2 dark:bg-white/10">{ticket.state}</span>
                       </div>
                     ))}
                   </div>

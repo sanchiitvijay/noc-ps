@@ -1,0 +1,103 @@
+number,state,opened_by,sys_created_on,sys_updated_on,closed_at,assignment_group,assigned_to,short_description,description,work_notes,work_notes_list
+INC0095001,Resolved,admin,10-09-2026 09:15,10-09-2026 09:25,10-09-2026 09:25,Network Operations Center (NOC),Marcus Vance,P1 Outage: Dallas Distribution Center Core Switch 0412 offline,"Critical P1 Incident. Core Switch 0412-Dallas-TX-CoreSW-01 (10.201.10.1) unreachable.
+FEI 412
+FEI 0412
+Site: Dallas TX DC (4500 Logistics Way)
+Uplink to edge router TenGigabitEthernet1/0/1 dropped. Entire facility automated sort line halted.","10-09-2026 09:24:00 - Switch rebooted cleanly; dual power supplies stable; TenGigabitEthernet1/0/1 link UP.
+10-09-2026 09:17:30 - Dispatched on-site DC facilities engineer to inspect MDF rack PDU.",
+INC0095002,Open,admin,10-09-2026 09:16,10-09-2026 09:22,,Network Operations Center (NOC),Samantha Chen,Phoenix warehouse AP picking zone offline,"Wireless access point 2800-Phoenix-AZ-AP01 (10.188.45.15) offline.
+FEI 2800
+Location: Phoenix AZ Warehouse (8800 Desert Blvd).
+High CPU utilization preceded disconnect. Handheld picking scanners unable to associate.","10-09-2026 09:22:00 - High CPU alert (96%) logged on MR56 unit. Attempting PoE cycle from upstream switch.",
+INC0095003,In Progress,admin,10-09-2026 09:17,10-09-2026 09:28,,Network Operations Center (NOC),Alex Rivera,Atlanta Edge Router primary WAN BGP session flap,"Primary BGP peering dropped on edge router 1105-Atlanta-GA-EdgeRtr at 10.170.80.1.
+FEI 1105
+Site: Atlanta GA Regional Office (1200 Peachtree St).
+Interface GigabitEthernet0/0/2 toggled down. SD-WAN failover to broadband secondary engaged.","10-09-2026 09:28:00 - ISP confirms fiber cut repair on local loop. BGP route reconvergence in progress.",
+INC0095004,Open,admin,10-09-2026 09:18,10-09-2026 09:27,,Network Operations Center (NOC),Samantha Chen,Denver switch UPS management interface flapping,"Port flapping observed on 3410-Denver-CO-SW02 (10.160.22.40).
+FEI 3410
+Port 24 Gigabit and Port 48 10G uplink toggling state.
+Connected to Smart APC UPS management card. Site: Denver CO.","10-09-2026 09:27:00 - Investigating grounding and cable shielding on UPS network card.",
+CHG0096001,Closed,admin,10-09-2026 09:00,10-09-2026 09:32,10-09-2026 09:32,Network Operations Center (NOC),David Ross,Chicago Firewall cluster firmware maintenance,"Scheduled maintenance: Palo Alto firewall firmware upgrade for 0850-Chicago-IL-FW01 (10.135.5.1).
+FEI 850
+FEI 0850
+Facility: Chicago IL (350 Michigan Ave).
+Expected HA failover and brief heartbeat interruption during reboot cycle.","10-09-2026 09:30:00 - Firmware update 11.1.2 applied successfully. HA pair synchronized and passing traffic.",
+INC0095005,Open,admin,10-09-2026 09:25,10-09-2026 09:30,,Network Operations Center (NOC),Samantha Chen,Thin AP disassociated from wireless controller LEB-FLEX-vWLC,"Wireless controller LEB-FLEX-vWLC (10.254.71.4) reported sudden disassociation of lightweight access point.
+Device: LEB-FLEX-vWLC
+CAPWAP tunnel state torn down.","10-09-2026 09:30:00 - Checking DHCP lease pool and controller AP licensing ceiling.",
+RITM0097001,Pending,admin,10-09-2026 09:10,10-09-2026 09:20,,Network Operations Center (NOC),,Dallas to Atlanta bandwidth expansion request,"Request for SD-WAN path prioritization and QoS profile update between:
+0412-Dallas-TX-CoreSW-01 (10.201.10.1)
+1105-Atlanta-GA-EdgeRtr (10.170.80.1)
+FEI 412
+FEI 1105","10-09-2026 09:20:00 - Pending capacity review from network architecture team.",
+INC0095006,Resolved,admin,10-09-2026 09:31,10-09-2026 09:44,10-09-2026 09:44,Network Operations Center (NOC),Alex Rivera,Miami WAN edge router AT&T MPLS circuit failure,"Incident detected on 1204-Miami-FL-EdgeRtr (10.145.10.1).
+FEI 1204
+Site: Miami FL Regional Hub (701 Brickell Ave).
+Interface GigabitEthernet0/0/1 dropped carrier signal. Redundant broadband circuit carrying traffic.","10-09-2026 09:43:00 - AT&T NOC cleared optical flap on local CO cross-connect. GigabitEthernet0/0/1 restored.",
+INC0095007,Resolved,admin,10-09-2026 09:33,10-09-2026 09:46,10-09-2026 09:46,Network Operations Center (NOC),Marcus Vance,P1 Outage: Seattle DC core switch 0520 down,"Critical incident: 0520-Seattle-WA-CoreSW-01 (10.210.20.1) lost management heartbeat.
+FEI 520
+FEI 0520
+Site: Seattle WA DC (500 Pine St).
+100G MLAG peer link Ethernet49/1 down. Secondary core operating in standalone fail-safe mode.","10-09-2026 09:45:00 - Switch recovered from kernel watchdog reboot. MLAG peers in sync.",
+INC0095008,In Progress,admin,10-09-2026 09:35,10-09-2026 09:55,,Network Operations Center (NOC),David Ross,Boston FortiGate firewall high CPU and degraded SD-WAN,"Alert on 2140-Boston-MA-FW01 (10.155.30.1).
+FEI 2140
+Site: Boston MA Office (100 Federal St).
+IPS proxy thread saturation causing 94% CPU utilization and packet delay across port1.","10-09-2026 09:54:00 - Restarting IPS process worker pool and analyzing deep inspection ruleset.",
+INC0095009,Resolved,admin,10-09-2026 09:37,10-09-2026 09:47,10-09-2026 09:47,Network Operations Center (NOC),Samantha Chen,Austin Floor 3 Aruba AP-535 offline,"Access point 3102-Austin-TX-AP02 (10.192.50.22) lost connection.
+FEI 3102
+Site: Austin TX Office (400 Congress Ave).
+Employees on 3rd floor reported roaming disconnects.","10-09-2026 09:46:00 - Aruba Central controller re-provisioned AP tunnel successfully.",
+INC0095010,Resolved,admin,10-09-2026 09:38,10-09-2026 09:48,10-09-2026 09:48,Network Operations Center (NOC),Marcus Vance,San Jose Distribution Switch fiber uplink TenGigabitEthernet1/1/1 down,"Link fault on 0910-SanJose-CA-DistSW (10.225.12.1).
+FEI 910
+FEI 0910
+Site: San Jose CA Campus (150 Almaden Blvd).
+Loss of optical signal detected on SFP+ transceiver.","10-09-2026 09:47:00 - Onsite tech reseated SFP+ transceiver module; Rx power levels nominal.",
+INC0095011,Resolved,admin,10-09-2026 09:39,10-09-2026 09:49,10-09-2026 09:49,Network Operations Center (NOC),Alex Rivera,NYC Core Router 1400 external BGP peer flap,"BGP neighbor 198.51.100.1 transitioned to ACTIVE on 1400-NYC-NY-CoreRtr-01 (10.110.1.1).
+FEI 1400
+Site: NYC Data Center (111 8th Ave).
+Transit routes withdrawn on Tier 1 upstream.","10-09-2026 09:48:00 - BGP keepalives received from upstream ISP; peer session re-established.",
+INC0095012,Resolved,admin,10-09-2026 09:40,10-09-2026 09:51,10-09-2026 09:51,Network Operations Center (NOC),David Ross,Salt Lake City warehouse conveyor switch 0620 unreachable,"Outage on 0620-SLC-UT-SW01 (10.175.40.10).
+FEI 620
+FEI 0620
+Site: Salt Lake City UT DC (50 S Main St).
+Conveyor belt control cabinet lost network telemetry.","10-09-2026 09:50:00 - Facilities maintenance reset power strip breaker in cabinet C-04.",
+INC0095013,Resolved,admin,10-09-2026 09:52,10-09-2026 09:56,10-09-2026 09:56,Network Operations Center (NOC),Alex Rivera,Atlanta Edge Router DMVPN Tunnel 100 drop,"Tunnel 100 failure on 1105-Atlanta-GA-EdgeRtr (10.170.80.1).
+FEI 1105
+Site: Atlanta GA (1200 Peachtree St).
+Crypto IPsec SA renegotiation timeout after high CPU burst.","10-09-2026 09:55:00 - NHRP registration refreshed and IPsec security association re-keyed.",
+INC0095014,Resolved,admin,10-09-2026 10:03,10-09-2026 10:06,10-09-2026 10:06,Network Operations Center (NOC),Marcus Vance,Dallas DC Access Switch 0412-AccessSW-03 breaker trip,"Rack C power drop: 0412-Dallas-TX-AccessSW-03 (10.201.10.35) offline.
+FEI 412
+Site: Dallas TX DC (4500 Logistics Way).
+Redundant PDU feed transferred load.","10-09-2026 10:05:00 - Switch power dual supplies healthy. All access ports up.",
+INC0095015,Resolved,admin,10-09-2026 10:07,10-09-2026 10:10,10-09-2026 10:10,Network Operations Center (NOC),David Ross,Seattle Core Switch BPDU guard loop prevention,"Port err-disabled on 0520-Seattle-WA-CoreSW-01 (10.210.20.1).
+FEI 520
+Site: Seattle WA DC (500 Pine St).
+Spanning-tree BPDU guard detected unauthorized bridge on Ethernet12.","10-09-2026 10:09:00 - Rogue mini-hub disconnected from desk drop. Port error cleared.",
+CHG0096002,Closed,admin,10-09-2026 10:10,10-09-2026 10:15,10-09-2026 10:15,Network Operations Center (NOC),Alex Rivera,Scheduled IOS-XE upgrade on Miami edge router 1204,"Production Change: Upgrade Cisco ISR 4461 (1204-Miami-FL-EdgeRtr / 10.145.10.1) to IOS-XE 17.9.4a.
+FEI 1204
+Facility: Miami FL (701 Brickell Ave).
+Pre-approved maintenance window.","10-09-2026 10:14:00 - Reload complete; running image verified as 17.9.4a; BGP neighbors established.",
+CHG0096003,In Progress,admin,10-09-2026 10:20,10-09-2026 10:26,,Network Operations Center (NOC),Marcus Vance,San Jose duplex mismatch resolution on 0910-DistSW,"Change ticket: Re-configure auto-negotiation and speed duplex on 0910-SanJose-CA-DistSW (10.225.12.1).
+FEI 910
+Site: San Jose CA (150 Almaden Blvd).
+Port GigabitEthernet1/0/24 forced to 1000/Full.","10-09-2026 10:25:00 - Interface port config committed. CRC error counter stopped incrementing.",
+PRB0098001,Open,admin,10-09-2026 10:20,10-09-2026 10:22,,Network Operations Center (NOC),Samantha Chen,Recurring PoE budget exhaustion on Austin floor switches,"Problem Investigation: Multiple AP drops observed on 3102-Austin-TX-AP02 (10.192.50.22).
+FEI 3102
+Site: Austin TX Office (400 Congress Ave).
+Investigating power allocation budget per switch stack.","10-09-2026 10:21:30 - Collecting LLDP power negotiation logs from Cisco 9300 PoE controllers.",
+PRB0098002,In Progress,admin,10-09-2026 09:30,10-09-2026 10:03,,Network Operations Center (NOC),Samantha Chen,Denver switch UPS management interface flapping root cause,"Root cause analysis for 3410-Denver-CO-SW02 (10.160.22.40).
+FEI 3410
+Site: Denver CO (200 Rocky Way).
+Intermittent grounding noise on Port 24 causing link carrier bouncing.","10-09-2026 10:02:00 - Replaced Cat6 patch cable with shielded STP cable; monitoring for flaps.",
+PRB0098003,Open,admin,10-09-2026 09:50,10-09-2026 10:19,,Network Operations Center (NOC),David Ross,Boston FortiGate IPS engine memory leak,"Investigation into 2140-Boston-MA-FW01 (10.155.30.1) CPU and memory alarms.
+FEI 2140
+Site: Boston MA (100 Federal St).
+Memory threshold alerts persisting after heavy SSL inspection flows.","10-09-2026 10:18:30 - Opening TAC case with Fortinet support for IPS daemon core dump analysis.",
+RITM0097002,Approved,admin,10-09-2026 09:40,10-09-2026 10:00,,Network Operations Center (NOC),Marcus Vance,Provision secondary 100G uplink for Seattle Core,"Request for 100G optical cross-connect provisioning for 0520-Seattle-WA-CoreSW-01 (10.210.20.1).
+FEI 520
+Site: Seattle WA DC (500 Pine St).
+Redundancy expansion for distribution sort floor.","10-09-2026 10:00:00 - Fiber patch cords allocated and tagged in MMR rack.",
+RITM0097003,Pending,admin,10-09-2026 09:45,10-09-2026 10:10,,Network Operations Center (NOC),Alex Rivera,Add DMVPN spoke profile for Salt Lake City facility,"Service Request: Configure dynamic multipoint VPN spoke configuration for 0620-SLC-UT-SW01 (10.175.40.10).
+FEI 620
+Site: Salt Lake City UT DC (50 S Main St).
+Direct branch-to-branch mesh routing enablement.","10-09-2026 10:10:00 - Awaiting security architecture sign-off on crypto map policy.",
